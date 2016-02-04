@@ -51,13 +51,13 @@ Should an attacker manage to gain a trusted x509 certificate/key and the configu
 
 Once joined to the cluster, subverting all the other controls is relatively easy.
 
-I believe the proper long-term solution to this would be to implement an attestation protocol that would run prior to erlang distribution being setup between nodes. The only way I an see this working in a provably secure way is to leverage TPM hardware and kernel ingegrity checking hooks.
+I believe the proper long-term solution to this would be to implement an attestation protocol that would run prior to erlang distribution being setup between nodes. The only way I an see this working in a provably secure way is to leverage TPM hardware and kernel integrity checking hooks.
 
 #### Denial of service
 
 There is limited defense against DoS attacks in the form of limiting the number of CPU intensive processes. Exceeding configured capacity will lead to clients waiting on available slots. Eventually the service will experience resource exhaustion when all file descriptors used for socket handling are used up.
 
-It is possible for a root user to kill the service process without being a member of the correct SELinux context (To be confirmed).
+It is possible for a root user to kill the service process without being a member of the correct SELinux context.
 
 As all operations are logged, it would be possible for an authenticated client to exhaust disk space by crafting bogus requests. This will result in a DoS condition.
 
@@ -111,7 +111,7 @@ Cinched uses both DAC (unix permissions) and MAC (type enforcement via SELinux) 
 Cinched must be started as the root user in order to be able to setup an appropriate runtime environment. During the service startup, Cinched:
 
 * Sets the system resource limit to ensure sufficient file descriptors are available.
-* Diables kernel core dumps
+* Disables kernel core dumps
 * Resets all filesystem file/folder permissions and ownership to the configured Cinched user
 * Drops privileges to the `cinched` user
 
@@ -854,6 +854,7 @@ Content-length: 134
 ```
 
 |Response header |Value|
+|----------------|-----|
 |Content-length |Length of returned document|
 |Content-type|application/json|
 
@@ -862,7 +863,7 @@ Content-length: 134
 |dataKey|The generated data key|
 |cryptoPeriod|Number of days since Jan 1, 1970|
 
-### Sample use case: 1 data key per user
+### Sample use case: one data key per user
 
 If your system has multiple users, one way of managing keys that can be accomplished fairly easily is to generate one data key per user (for example at account creation time), and use that key for all operations relating to that user.
 
@@ -870,7 +871,7 @@ It's a good idea to store the data key in a separate storage system (with differ
 
 To defend against brute force/offline attacks against the keys, you can keep track of the crypto-period per key and periodically query for keys that have aged past a given threshold and generate a new data key/re-encrypt all the protected data.
 
-### Sample use case: 1 data key per encrypted object
+### Sample use case: one data key per encrypted object
 
 This is the most secure stance. When creating or updating an object, let Cinched generate a new data key (by not passing in the `x-cinched-data-key` HTTP header, and store the generated key for later use.
 
@@ -993,6 +994,7 @@ Content-length: 1214
 ```
 
 |Response header |Value|
+|----------------|-----|
 |x-cinched-data-key| The data key used during encryption|
 |x-cinched-crypto-period|The date at which the key was created as epoch day|
 |Content-length |Length of returned document|
@@ -1163,7 +1165,7 @@ Another alternative would be a new distribution protocol carrier could be create
 
 In both these scenarios, you could restrict keys to only be usable when the system state is good, and the private keys would never leave the hardware chip.
 
-Furhter reading:
+Further reading:
 
 https://www.mitre.org/sites/default/files/pdf/10_0959.pdf
 
