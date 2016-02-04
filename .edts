@@ -1,0 +1,4 @@
+:name "cinched-edts"
+:node-sname "cinched-edts"
+:lib-dirs '("lib" "deps" "test" "apps")
+:app-include-dirs '("priv" "include")

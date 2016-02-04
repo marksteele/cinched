@@ -1,0 +1,739 @@
+#!/bin/bash
+
+export ROOTDIR="/usr/lib64/cinched"
+export EMU="beam"
+export BINDIR="/usr/lib64/cinched/erts-6.4/bin"
+
+function valid_int()
+{
+    local val=$1
+    local lower=$2
+    local upper=$3
+    if [[ $val =~ ^[0-9]+$ ]] && [[ $val -ge $lower ]] && [[ $val -le $upper ]]; then
+        return 0
+    else
+        echo "Please provide a value between $lower and $upper"
+        return 1
+    fi
+
+}
+
+function containsElement()
+{
+  local e
+  for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
+  return 1
+}
+
+function valid_ip()
+{
+    local  ip=$1
+    local  stat=1
+    if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        OIFS=$IFS
+        IFS='.'
+        ip=($ip)
+        IFS=$OIFS
+        [[ ${ip[0]} -le 255 && ${ip[1]} -le 255 \
+            && ${ip[2]} -le 255 && ${ip[3]} -le 255 ]]
+        stat=$?
+    fi
+    return $stat
+}
+
+function valid_comma_separated_ips()
+{
+    local IP=$1
+    OIFS=$IFS
+    IFS=','
+    local IPS=($2)
+    IFS=$OIFS
+
+    containsElement $IP ${IPS[@]}
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+
+    for x in ${IPS[@]}
+    do
+        valid_ip $x
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+
+grep -q -s "CentOS Linux release 7" /etc/redhat-release
+if [ $? -ne 0 ]; then
+    echo "This application has only been tested on CentOS 7"
+    exit 1
+fi
+
+if [ "$1" == "start" ]; then
+
+# ARRRRGGGGHHHH Removed:
+#    ulimit -l unlimited
+#        +Mlpm all \
+# locks all memory. Unfortunately, looks like under some circumstances Erlang
+# goes into a tailspin and eats all RAM causing OOMKiller to go postal.
+# I've only seen this happen when locking memory, so I'm going to assume it's
+# some sort of issue with the way cinched is written or Erlang qwerkiness.
+
+    NODENAME="cinched@$(cat /etc/cinched/host.config)"
+    CMD="$BINDIR/erl +P 256000 -env ERL_MAX_ETS_TABLES 256000 \
+        -env ERL_CRASH_DUMP /dev/null -env ERL_FULLSWEEP_AFTER 0 \
+        -env ERL_MAX_PORTS 65536 +A 64 +K true +W w -smp auto \
+        +B i \
+        -detached \
+        -proto_dist inet_tls \
+        -ssl check_ip true \
+        -ssl_dist_opt \
+        client_cacertfile /var/lib/cinched/cacert.pem \
+        client_keyfile /var/lib/cinched/key.pem \
+        client_certfile /var/lib/cinched/cert.pem \
+        server_cacertfile /var/lib/cinched/cacert.pem \
+        server_keyfile /var/lib/cinched/key.pem \
+        server_certfile /var/lib/cinched/cert.pem \
+        server_verify verify_peer \
+        client_verify verify_peer \
+        server_fail_if_no_peer_cert true \
+        server_depth 0 \
+        client_depth 0 \
+        server_secure_renegotiate true \
+        client_secure_renegotiate true \
+        -name $NODENAME \
+        -config /var/lib/cinched/sys.config \
+        -setup verify_directories false"
+else
+    HOSTIP=$(cat /etc/cinched/host.config 2>/dev/null)
+    CMD="$BINDIR/erl -env ERL_CRASH_DUMP /dev/null \
+        +K true +W w -smp disable \
+        +B i \
+        -proto_dist inet_tls \
+        -ssl check_ip true \
+        -ssl_dist_opt \
+        client_cacertfile /var/lib/cinched/cacert.pem \
+        client_keyfile /var/lib/cinched/key.pem \
+        client_certfile /var/lib/cinched/cert.pem \
+        server_cacertfile /var/lib/cinched/cacert.pem \
+        server_keyfile /var/lib/cinched/key.pem \
+        server_certfile /var/lib/cinched/cert.pem \
+        server_verify verify_peer \
+        client_verify verify_peer \
+        server_fail_if_no_peer_cert true \
+        server_depth 0 \
+        client_depth 0 \
+        server_secure_renegotiate true \
+        client_secure_renegotiate true \
+         -noinput \
+         -hidden \
+         -name rpc@$HOSTIP \
+         -boot $ROOTDIR/bin/start_clean \
+         -s cinched_rpc start \
+         -s init stop \
+         -extra \
+         --target cinched@${HOSTIP} --module cinched_console \
+         --function "
+fi
+
+# Identify the script name
+SCRIPT=`basename $0`
+
+usage() {
+    echo "Usage: $SCRIPT help | start | status | init-cluster | stats | rotate-audit-log |"
+    echo "               check-audit-log | view-audit-log | list-audit-logs |"
+    echo "               send-key-shard | backup | setup"
+    echo "               rotate-operator-key | rotate-operator-key-send-shard"
+}
+
+
+# Check the first argument for instructions
+case "$1" in
+    help)
+        echo <<EOF
+
+The cinched-amdin tool is used to perform administrative tasks on the cinched nodes. The following commands are available:
+
+help: You are here.
+
+setup: Initial system setup. This should be the first thing run after the software is installed.
+
+start: Start the service.
+
+status: Queries the local node to see what state it's in.
+
+init-cluster: This command is used for cluster initialization, and should only be run from a single node once in the lifetime of the cluster.
+
+stats: Return statistics for the current node.
+
+list-audit-logs: Returns a list of audit logs as well as file size.
+
+check-audit-log <LOGFILE>: Verify the specified log file's integrity.
+
+view-audit-log <LOGFILE>: Display the specified log file's contents.
+
+rotate-audit-log: Rotate the active audit log.
+
+send-key-shard: This command will prompt for a key shard to send to the local node during the node initialization.
+
+rotate-operator-key: Initiate an Operator Key rotation.
+
+rotate-operator-key-send-shard: Send current valid shards to the key rotation process to validate the request.
+
+backup: Create a backup of the cluster state.
+
+For more details on what each command does, please refer to the documentation.
+
+EOF
+        ;;
+    gen_completions)
+        echo "help start stop status setup list-audit-logs rotate-audit-log view-audit-log send-key-shard rotate-operator-key rotate-operator-key-send-shard backup init-cluster"
+        exit 0
+    ;;
+    start)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT start"
+            exit 1
+        fi
+        $CMD
+        exit 0
+        ;;
+    stop)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT status"
+            exit 1
+        fi
+        $CMD stop -u "$LOGNAME"
+        ;;
+    status)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT status"
+            exit 1
+        fi
+        $CMD status -u "$LOGNAME"
+        ;;
+
+    list-audit-logs)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT list-audit-logs"
+            exit 1
+        fi
+        $CMD list_audit_logs -u "$LOGNAME"
+        ;;
+
+    rotate-audit-log)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT rotate-audit-log"
+            exit 1
+        fi
+        $CMD rotate_audit_log -u $LOGNAME
+        ;;
+
+    stats)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT stats"
+            exit 1
+        fi
+        $CMD stats -u "$LOGNAME"
+        ;;
+    backup)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT backup"
+            exit 1
+        fi
+        $CMD backup -u "$LOGNAME"
+        ;;
+    check-audit-log)
+        if [ $# -ne 2 ]; then
+            echo "Usage: $SCRIPT check-audit-log <log file path>"
+            exit 1
+        fi
+        shift
+        $CMD check_audit_log -a "$@" -u "$LOGNAME"
+        ;;
+
+    view-audit-log)
+        if [ $# -ne 2 ]; then
+            echo "Usage: $SCRIPT view-audit-log <log file path>"
+            exit 1
+        fi
+        shift
+        $CMD view_audit_log -a "$@" -u "$LOGNAME"
+        ;;
+
+    send-key-shard)
+        if [ $# -ne 1 ]; then
+            echo "Usage $SCRIPT send-key-shard"
+            exit 1
+        fi
+        read -s -p "Key Shard: " keyshard
+        echo
+        $CMD send_key_shard -a "$keyshard" -u "$LOGNAME"
+        ;;
+
+    rotate-operator-key)
+        if [ $# -ne 1 ]; then
+            echo "Usage $SCRIPT rotate-operator-key"
+            exit 1
+        fi
+        $CMD rotate_ok -u "$LOGNAME"
+        ;;
+
+    rotate-operator-key-send-shard)
+        if [ $# -ne 1 ]; then
+            echo "Usage $SCRIPT rotate-operator-key-send-shard"
+            exit 1
+        fi
+        read -s -p "Key Shard: " keyshard
+        echo
+        $CMD rotate_ok_shard -a "$keyshard" -u "$LOGNAME"
+        ;;
+    init-cluster)
+        if [ $# -ne 1 ]; then
+            echo "Usage $SCRIPT init-cluster"
+            exit 1
+        fi
+        $CMD init_cluster -u "$LOGNAME"
+        ;;
+    setup)
+        if [ $# -ne 1 ]; then
+            echo "Usage $SCRIPT setup"
+            exit 1
+        fi
+        printf "\033c"
+        echo "
+Welcome to the cinched setup wizard. To complete this wizard you will need:
+
+ * The path for the x509 certificate to be used for the service
+ * The path for the x509 certficate key (unencrypted) to be used for the service
+ * The path for the x509 CA certificate
+ * The IP addresses of all hosts in this cluster
+ * The port numbers cinched can use
+
+Step 1. Set the Erlang cookie
+
+"
+        read -n 1 -p "Are you ready to continue? (Y/N)" cont
+        echo ""
+        if [ ${cont,,} != "y" ]; then
+            echo "Aborting"
+            exit 1
+        fi
+        printf "\033c"
+        echo "Checking for Erlang cookie file"
+        if [ -e /var/lib/cinched/erlang.cookie ]; then
+            echo "Cookie already set"
+                echo "The value of the erlang cookie is: "
+                cat /var/lib/cinched/erlang.cookie
+        else
+            read -n 1 -p "Cookie not set. Do you want to generate a random cookie? (Y/N) : " gen_cookie
+            echo
+            if [ ${gen_cookie,,} == "y" ]; then
+                echo "The value of the erlang cookie is: "
+                cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1 | tee /var/lib/cinched/erlang.cookie
+                echo
+                echo "Please make sure this value is the same on all nodes in the cinched cluster. Write this down!"
+            else
+                read -n 1 -p "Would you like to set the value of the cookie now? (Y/N) : " set_cookie
+                echo
+                if [ ${set_cookie,,} == "y" ]; then
+                    read -p "Enter cookie value: " cookieval
+                    echo $cookieval >/var/lib/cinched/erlang.cookie
+                else
+                    echo "Please make sure the value you set is the same on all nodes in the cinched cluster. Write this down!"
+                fi
+            fi
+        fi
+        read -n 1 -p "Press any key to continue. Pssstt... Did you remember to note the cookie value for later?" cont
+        printf "\033c"
+        echo -e "Step 2. Setup the x509 certificates\n\n"
+        CERTPATH="/var/lib/cinched/cert.pem"
+        KEYPATH="/var/lib/cinched/key.pem"
+        CAPATH="/var/lib/cinched/cacert.pem"
+
+        echo "Checking x509 certificate"
+        if [ ! -e $CERTPATH ]; then
+            read -p "x509 server certificate not found, please enter the path to the certificate: " certfile
+            echo
+            if [ ! -e "${certfile}" ]; then
+                echo "File ${certfile} not found"
+                exit 1
+            else
+                cp -v "${certfile}" "$CERTPATH"
+                if [ $? -eq 0 ]; then
+                    echo "Success"
+                else
+                    echo "Error copying certificate file"
+                    exit 1
+                fi
+            fi
+        else
+            echo "$CERTPATH already exists"
+        fi
+
+        echo "Checking x509 certificate key"
+        if [ ! -e $KEYPATH ]; then
+            read -p "x509 server certificate key not found, please enter the path to the certificate key: " keyfile
+            echo
+            if [ ! -e "${keyfile}" ]; then
+                echo "File ${keyfile} not found"
+                exit 1
+            else
+                cp -v "${keyfile}" "$KEYPATH"
+                if [ $? -eq 0 ]; then
+                    echo "Success"
+                    echo "
+It is strongly recommended to remove the unencrypted private key from the location where it has been copied from.
+
+Make sure you have a backup if you chose to let the setup wizard delete it.
+
+"
+                    read -n 1 -p "Would you like to remove the unencrypted key now? (Y/N) : " delkey
+                    echo
+                    if [ ${delkey,,} == "y" ]; then
+                        rm ${keyfile}
+                        if [ $? -eq 0 ]; then
+                            echo "Key deleted successfully"
+                        else
+                            echo "Error deleting key"
+                        fi
+                    fi
+
+                else
+                    echo "Error copying certificate key file"
+                    exit 1
+                fi
+            fi
+        else
+            echo "$KEYPATH already exists"
+        fi
+
+        echo "Checking CA certificate"
+        if [ ! -e $CAPATH ]; then
+            read -p "x509 certificate authoritity file not found, please enter the path to the CA file: " cafile
+            echo
+            if [ ! -e "${cafile}" ]; then
+                echo "File ${cafile} not found"
+                exit 1
+            else
+                cp -v "${cafile}" "$CAPATH"
+                if [ $? -eq 0 ]; then
+                    echo "Success"
+                else
+                    echo "Error Copying CA file"
+                    exit 1
+                fi
+            fi
+        else
+            echo "$CAPATH already exists"
+        fi
+
+
+        read -n 1 -p "Press any key to continue" cont
+        printf "\033c"
+        echo -e "Step 3. SELinux configuration\n\n"
+
+
+        grep -e "^SELINUX=enforcing" /etc/selinux/config
+        if [ $? -eq 0 ]; then
+            echo "SELinux is enforcing, good!"
+        else
+            echo "Error: SELinux is not enforcing. Please change the configuration and restart this setup script."
+            exit 1
+        fi
+
+        echo "Checking SELinux enforcement type"
+        grep -e "^SELINUXTYPE=targeted" /etc/selinux/config
+        if [ $? -eq 0 ]; then
+            echo "SELinux type is targeted, good!"
+        else
+            echo "SELinux expects to be run in targetd enforcement mode, please change it and restart the script script"
+            exit 1
+        fi
+
+        setenforce 0
+
+        echo "Checking for operators group"
+
+        getent group operators >/dev/null 2>&1
+
+        if [ $? -eq 0 ]; then
+            echo "Group already exists"
+        else
+            echo "Adding group"
+            groupadd operators
+        fi
+
+        echo "Associating users in operators group with the sysadm_u SELinux user"
+
+        semanage login -l | grep -q %operators
+
+        if [ $? -eq 0 ]; then
+            echo "Already associated"
+        else
+            semanage login -a -s sysadm_u %operators
+            echo "Done"
+        fi
+
+        echo "Allowing sysadmn role to login via SSH"
+        setsebool -P ssh_sysadm_login on
+
+        echo "Denying ptrace to all processes (will break things like strace)"
+        setsebool -P deny_ptrace on
+
+        echo "Denying the ability to mark memory as both writeable and executable"
+        setsebool -P deny_execmem on
+
+        echo "Do you want to disable loading of kernel modules?
+
+*****WARNING*****
+
+If you are using a stock OS kernel, there is a good chance that the system is dynamically loading kernel modules during the boot sequence (eg: loading iptables, NIC drivers, etc...), enabling this will break your system if this is the case.
+
+The downside of *NOT* locking down the dynamic loading of kernel modules is that should the system become compromised, an attacker and load a kernel module that can dump the contents of RAM, which would expose the keys used for encryption.
+
+It is therefore recommended to compile a kernel that contains all modules that your system uses compiled into a monolithic kernel.
+
+To do so, control-c to exit this wizard, go compile your kernel, then re-run the setup.
+
+
+"
+        read -n 1 -p "Lock down kernel module insmod? (Y/N): " insmod_lockdown
+        echo
+        if [ ${insmod_lockdown,,} == "y" ]; then
+            echo "Kernel module loading locked down"
+            setsebool -P secure_mode_insmod on
+        fi
+
+        echo "Disabling selinuxuser_execstack,selinuxuser_execmod,selinuxuser_execheap"
+        setsebool -P selinuxuser_execstack off
+        setsebool -P selinuxuser_execmod off
+        setsebool -P selinuxuser_execheap off
+
+        echo "Loading policy"
+
+        semodule -i /usr/lib64/cinched/policy/*.pp
+        semodule -l | grep -q cinched
+
+        if [ $? -eq 0 ]; then
+            echo "CINCHED policy loaded"
+        else
+            echo "Error loading policy"
+            exit 1
+        fi
+
+        semodule -l | grep -q localuser
+
+        if [ $? -eq 0 ]; then
+            echo "LOCALUSER policy loaded"
+        else
+            echo "Error loading policy"
+            exit 1
+        fi
+
+        read -n 1 -p "Press any key to continue" cont
+        printf "\033c"
+        echo "Step 4. Settings"
+
+        while [[ -z "$cache_ttl" ]]; do
+            read -e -i 86400 -p "Key cache time-to-live in seconds: " cache_ttl
+            valid_int $cache_ttl 1 1000000
+            if [ $? -ne 0 ]; then
+                unset cache_ttl
+            fi
+        done
+        while [[ -z "$cache_size" ]]; do
+            read -e -i 1048576 -p "Key cache size in bytes: " cache_size
+            valid_int $cache_size 1 100000000
+            if [ $? -ne 0 ]; then
+                unset cache_size
+            fi
+        done
+        while [[ -z "$workers" ]]; do
+            read -e -i 50 -p "Crypto worker processes: " workers
+            valid_int $workers 1 1000
+            if [ $? -ne 0 ]; then
+                unset workers
+            fi
+        done
+        while [[ -z "$ring_size" ]]; do
+            read -e -i 64 -p "Number of partitions (should be 16-1024): " ring_size
+            valid_int $ring_size 8 1024
+            if [ $? -ne 0 ]; then
+                unset ring_size
+            fi
+        done
+        while [[ -z "$key_shards" ]]; do
+            read -e -i 10 -p "Number of operator key shards: " key_shards
+            valid_int $key_shards 1 100
+            if [ $? -ne 0 ]; then
+                unset key_shards
+            fi
+        done
+        while [[ -z "$key_thresh" ]]; do
+            read -e -i 3 -p "Number of key shards required to reconstruct operator key: " key_thresh
+            valid_int $key_thresh 1 ${key_shards}
+            if [ $? -ne 0 ]; then
+                unset key_thresh
+            fi
+        done
+        while [[ -z "$ocsp_cache_ttl" ]]; do
+            read -e -i 120 -p "OCSP cache time-to-live in seconds: " ocsp_cache_ttl
+            valid_int $ocsp_cache_ttl 1 1000000
+            if [ $? -ne 0 ]; then
+                unset ocsp_cache_ttl
+            fi
+        done
+        while [[ -z "$ocsp_cache_size" ]]; do
+            read -e -i 1048576 -p "OCSP cache size in bytes: " ocsp_cache_size
+            valid_int $ocsp_cache_size 1 100000000
+            if [ $? -ne 0 ]; then
+                unset ocsp_cache_size
+            fi
+        done
+        while [[ -z "$n_val" ]]; do
+            read -e -i 3 -p "Replication factor: " n_val
+            valid_int $n_val 1 100
+            if [ $? -ne 0 ]; then
+                unset n_val
+            fi
+        done
+        while [[ -z "$ip" ]]; do
+            read -e -i "192.168.101.1" -p "IP address to bind to: " ip
+            valid_ip $ip
+            if [ $? -ne 0 ]; then
+                echo "Invalid IP provided"
+                unset ip
+            fi
+            OIFS=$IFS
+            IFS=" "
+            CONFIGURED_IPS=($(hostname -I))
+            IFS=$OIFS
+            containsElement $ip ${CONFIGURED_IPS[@]}
+            if [ $? -ne 0 ]; then
+                echo "This address is not defined on the current host"
+                unset ip
+            fi
+        done
+        while [[ -z "$tls_port" ]]; do
+            read -e -i 55443 -p "Port to use for cinched service: " tls_port
+            valid_int $tls_port 1 65536
+            if [ $? -ne 0 ]; then
+                unset tls_port
+            fi
+        done
+        while [[ -z "$backup_port" ]]; do
+            read -e -i 55442 -p "Port to use for cinched backup traffic: " backup_port
+            valid_int $backup_port 1 65536
+            if [ $? -ne 0 ]; then
+                unset backup_port
+            fi
+        done
+
+        while [[ -z "$nodes" ]]; do
+            read -e -i "192.168.101.1,192.168.101.2,192.168.101.5" -p "Comma separated list of hosts in this cluster: " nodes
+            valid_comma_separated_ips $ip $nodes
+            if [ $? -ne 0 ]; then
+                echo "Invalid list of comma separated IP addresses provided"
+                unset nodes
+            fi
+        done
+
+        ## single-quotify to turn into atoms
+        OIFS=$IFS
+        IFS=','
+        IPS=($nodes)
+        IFS=OIFS
+        COMMA=","
+        for x in ${IPS[@]}; do NODELIST+="'cinched\@${x}'"; NODELIST+=$COMMA;done
+        # ${NODELIST%?} --> strips last comma
+        perl -pe "s#%%KEY_CACHE_TTL%%#${cache_ttl}#g; s#%%KEY_CACHE_SIZE%%#${cache_size}#g; s#%%WORKERS%%#${workers}#g; s#%%RING_SIZE%%#${ring_size}#g;s#%%KEY_SHARDS%%#${key_shards}#g; s#%%KEY_THRESH%%#${key_thresh}#g; s#%%OCSP_CACHE_TTL%%#${ocsp_cache_ttl}#g; s#%%OCSP_CACHE_SIZE%%#${ocsp_cache_size}#g; s#%%N_VAL%%#${n_val}#g; s#%%IP%%#${ip}#g; s#%%TLS_PORT%%#${tls_port}#g; s#%%BACKUP_PORT%%#${backup_port}#g; s#%%NODES%%#${NODELIST%?}#g;" <<EOF >/var/lib/cinched/sys.config
+[
+ {lager,
+     [{error_logger_hwm,200},
+      {handlers,
+          [{lager_file_backend,
+               [{file,"/var/log/cinched/console.log"},
+                {level,debug},
+                {size,10485760},
+                {date,"$D0"},
+                {count,5}]}]},
+      {error_logger_redirect,true}]},
+ {cinched,
+     [{key_cache_segments,10},
+      {key_cache_ttl,%%KEY_CACHE_TTL%%},
+      {key_cache_size,%%KEY_CACHE_SIZE%%},
+      {workers_overflow,10},
+      {workers,%%WORKERS%%},
+      {ocsp_cache_size,%%OCSP_CACHE_SIZE%%},
+      {ocsp_cache_segments,10},
+      {ocsp_cache_ttl,%%OCSP_CACHE_TTL%%},
+      {ring_size,%%RING_SIZE%%},
+      {key_shards,%%KEY_SHARDS%%},
+      {key_shard_threshold,%%KEY_THRESH%%},
+      {n_val,%%N_VAL%%},
+      {http_acceptors,100},
+      {ip,"%%IP%%"},
+      {tls_port,%%TLS_PORT%%},
+      {backup_port,%%BACKUP_PORT%%},
+      {nodes,
+          [%%NODES%%]}]},
+ {exometer,
+     [{defaults,
+          [{['_'],counter,[{module,exometer}]},
+           {['_'],duration,[{module,exometer_folsom}]},
+           {['_'],fast_counter,[{module,exometer}]},
+           {['_'],function,[{module,exometer_function}]},
+           {['_'],gauge,[{module,exometer_folsom}]},
+           {['_'],histogram,[{module,exometer_histogram}]},
+           {['_'],meter,[{module,exometer_folsom}]},
+           {['_'],spiral,[{module,exometer_spiral}]}]},
+      {probe_defaults,
+          [{scheduler,0},
+           {sensitive,false},
+           {min_vheap_size,0},
+           {priority,normal},
+           {min_heap_size,40000}]}]},
+ {sasl,[{sasl_error_logger,false}]}].
+EOF
+        echo "${ip}" >/etc/cinched/host.config
+
+        chown -R cinched:cinched /var/lib/cinched
+        echo "Restoring SELinux file labels"
+        restorecon -Rv /var/{lib,log}/cinched /usr/lib64/cinched /usr/sbin/cinched /etc/cinched
+        echo "Setting filesystem attributes"
+        chattr +i -R /usr/lib64/cinched/ /usr/sbin/cinched /etc/bash_completion.d/cinched_bash_completions
+        echo "Setting SELinux to enforcing"
+        setenforce 1
+        read -n 1 -p "Press any key to continue" cont
+        printf "\033c"
+        echo "Step 5. Policy lock-down.
+
+***** WARNING *****
+
+If the policy is locked down, it will require the root user to edit the SELinux configuration and restart the server to effect a policy change.
+
+It is recommended that the policy be locked down, which will prevent
+a malicious user from changing runtime policy. Coupled with a boot-time password (eg: in the BIOS) and a bootloader password (grub), the system will not boot unattended, thus ensuring that if an attacker can change the SELinux configuration and attempt to reboot, the system will halt during the boot cycle, which should alert operators to examine the system for compromise.
+
+For testing purposes, you should probably choose N. For production, you should probably choose Y.
+
+"
+        read -n 1 -p "Lock down policy? (Y/N): " lockdown
+        echo
+        if [ ${lockdown,,} == "y" ]; then
+            setsebool -P secure_mode_policyload on
+            echo "Policy locked down"
+        else
+            echo "Policy not locked down"
+        fi
+        echo "Setup complete"
+        exit 0
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

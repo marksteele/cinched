@@ -1,0 +1,83 @@
+#########################################
+## <summary>
+##      Role access for ts_role
+## </summary>
+## <param name="role">
+##      <summary>
+##      Role allowed access.
+##      </summary>
+## </param>
+## <param name="domain">
+##      <summary>
+##      User domain for the role.
+##      </summary>
+## </param>
+#
+interface(`ts_role',`
+        gen_require(`
+          attribute_role ts_roles;
+          type ts_exec_t;
+          type ts_cli_t;
+        ')
+
+  roleattribute $1 ts_roles;
+  allow $2 { ts_exec_t }:dir list_dir_perms;
+  allow $2 { ts_exec_t }:file read_file_perms;
+
+  domtrans_pattern($2, ts_exec_t, ts_cli_t)
+  ps_process_pattern($2, ts_cli_t)
+  allow ts_cli_t $2:fd use;
+
+')
+
+#########################################
+## <summary>
+##      Role access for ts_sysadmin
+## </summary>
+## <param name="role">
+##      <summary>
+##      Role allowed access.
+##      </summary>
+## </param>
+#
+interface(`ts_sysadmin',`
+        gen_require(`
+          type ts_exec_t;
+          type ts_etc_t;
+          type ts_log_t;
+          type ts_lib_t;
+          type ts_audit_log_t;
+          type ts_t;
+        ')
+
+  allow $1 { ts_t ts_audit_log_t ts_lib_t ts_etc_t ts_log_t ts_exec_t }:dir list_dir_perms;
+  allow $1 { ts_t ts_audit_log_t ts_lib_t ts_etc_t ts_log_t ts_exec_t }:file read_file_perms;
+  allow $1 { ts_t ts_audit_log_t ts_lib_t ts_etc_t ts_log_t ts_exec_t }:dir relabelto_dir_perms;
+  allow $1 { ts_t ts_audit_log_t ts_lib_t ts_etc_t ts_log_t ts_exec_t }:file relabelto_file_perms;
+')
+
+#########################################
+## <summary>
+##      Role access for ts_admin
+## </summary>
+## <param name="role">
+##      <summary>
+##      Role allowed access.
+##      </summary>
+## </param>
+#
+interface(`ts_admin',`
+        gen_require(`
+          type ts_exec_t;
+          type ts_etc_t;
+          type ts_log_t;
+          type ts_t;
+          type ts_audit_log_t;
+          type ts_lib_t;
+        ')
+
+  allow $1 { ts_t ts_audit_log_t ts_lib_t ts_etc_t ts_log_t ts_exec_t }:dir list_dir_perms;
+  allow $1 { ts_t ts_audit_log_t ts_lib_t ts_etc_t ts_log_t ts_exec_t }:file read_file_perms;
+  allow $1 { ts_t ts_audit_log_t ts_lib_t ts_etc_t ts_log_t ts_exec_t }:dir relabel_dir_perms;
+  allow $1 { ts_t ts_audit_log_t ts_lib_t ts_etc_t ts_log_t ts_exec_t }:file relabel_file_perms;
+')

@@ -1,0 +1,18 @@
++P 256000
+-env ERL_MAX_ETS_TABLES 256000
+-env ERL_CRASH_DUMP /dev/null
+-env ERL_FULLSWEEP_AFTER 0
+-env ERL_MAX_PORTS 65536
++A 64
++K true
++W w
+-smp auto
+-ssl_dist_opt client_cacertfile /var/lib/cinched/cacert.pem
+-ssl_dist_opt client_keyfile /var/lib/cinched/key.pem
+-ssl_dist_opt client_certfile /var/lib/cinched/client.pem
+-ssl_dist_opt server_cacertfile /etc/cinched/cacert.pem
+-ssl_dist_opt server_keyfile /var/lib/cinched/key.pem
+-ssl_dist_opt server_certfile /var/lib/cinched/cert.pem
+-proto_dist inet_tls
+-name cinched@192.168.101.1
+-setcookie foobar

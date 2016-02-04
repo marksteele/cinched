@@ -1,0 +1,10 @@
+policy_module(localuser,0.1)
+
+gen_require(`
+    type sysadm_t;
+    role sysadm_r;
+    type setfiles_t;
+')
+
+ts_sysadmin(setfiles_t)
+ts_role(sysadm_r, sysadm_t)

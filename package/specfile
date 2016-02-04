@@ -1,0 +1,94 @@
+Name: cinched
+Version: %{_version}
+Release: %{_release}%{?dist}
+License: Apache 2.0
+Group: Development/Libraries
+Source: %{_tarname}
+URL: http://www.control-alt-del.org
+Vendor: Mark Steele
+Packager:  <mark@control-alt-del.org>
+BuildRoot: %{_tmppath}/%{name}-%{_revision}-%{release}-root
+Summary: cinched encryption service
+Obsoletes: cinched
+Requires: libocsp, bash-completion, haveged
+
+%description
+cinched encryption service
+
+%define debug_package %{nil}
+%define __prelink_undo_cmd /bin/cat prelink library
+
+%prep
+%setup -q -n %{_tarname_base}
+
+%build
+make compile
+bin/release.es
+
+%install
+%define relpath       %{_builddir}/%{buildsubdir}/rel/cinched
+%define buildroot_lib %{buildroot}/usr/lib64/cinched
+%define buildroot_etc %{buildroot}%{_sysconfdir}/cinched
+
+mkdir -p %{buildroot_etc}
+mkdir -p %{buildroot_lib}/policy
+mkdir -p %{buildroot}%{_localstatedir}/lib/cinched
+mkdir -p %{buildroot}%{_localstatedir}/log/cinched/audit
+
+cp -vR %{relpath}/lib       %{buildroot_lib}
+cp -vR %{relpath}/bin       %{buildroot_lib}
+cp -vR %{relpath}/erts-*    %{buildroot_lib}
+cp -vR %{relpath}/releases  %{buildroot_lib}
+
+mkdir -p %{buildroot}%{_sbindir}
+
+install -p -D -m 0600 %{_builddir}/%{buildsubdir}/bin/cinched %{buildroot}%{_sbindir}/
+
+cp -v %{_builddir}/%{buildsubdir}/policy/*.pp %{buildroot_lib}/policy/
+
+mkdir -p %{buildroot}/etc/bash_completion.d/
+cp -v %{_builddir}/%{buildsubdir}/bin/cinched_bash_completions %{buildroot}/etc/bash_completion.d/
+
+mkdir -p %{buildroot}%{_localstatedir}/lib/cinched
+# Needed to work around check-rpaths which seems to be hardcoded into recent
+# RPM releases
+export QA_RPATHS=3
+
+
+%pre
+# Pre-install script
+systemctl enable haveged
+systemctl start haveged
+if ! getent group cinched >/dev/null 2>&1; then
+   groupadd -r cinched
+fi
+
+if getent passwd cinched >/dev/null 2>&1; then
+   usermod -d %{_localstatedir}/lib/cinched cinched || true
+else
+   useradd -r -g cinched \
+           --home %{_localstatedir}/lib/cinched \
+           --comment "cinched user" \
+           --shell /bin/noshell \
+           cinched
+fi
+
+%post
+# Post Installation Script
+
+%preun
+# Pre-uninstall script
+semodule -r localuser cinched
+chattr -R -i /usr/sbin/cinched /usr/lib64/cinched /etc/bash_completion.d/cinched_bash_completions
+
+%files
+%defattr(-,cinched,cinched)
+%attr(0500,cinched,cinched) /usr/lib64/cinched/*
+%attr(0700,cinched,cinched) %dir %{_sysconfdir}/cinched
+%attr(0500,root,root) %{_sbindir}/*
+%attr(0700,cinched,cinched) %{_localstatedir}/lib/cinched
+%attr(0700,cinched,cinched) %{_localstatedir}/log/cinched
+%attr(0500,root,root) /etc/bash_completion.d/cinched_bash_completions
+
+%clean
+rm -rf %{buildroot}
