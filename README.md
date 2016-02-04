@@ -216,7 +216,7 @@ Some important things to keep in mind:
 * Server and client certificates must be issued from the same certificate authority.
 * If using DNS for load balancing, make sure you setup Subject Alternative Names when creating your x509 certificates that include each node in your cluster, otherwise some client libraries might get confused and refuse to connect. An alternative is to use a wildcard for the cluster (eg: *.cinched.mydomain.com)
 * Cinched will validate certificates for both client calls as well as when establishing intra-cluster communication.
-    * Checks CRLs only for erlang distribution (need to confirm this)
+    * Checks CRLs only for erlang distribution
     * Checks only OCSP for client calls, and therefore requires a valid OCSP URL in the Authority Information Access field of the x509 certificates. OCSP check results are cached for a configurable amount of time (defaults to 60s).
 
 # Operations guide
@@ -422,7 +422,7 @@ a malicious user from changing runtime policy. Coupled with a boot-time password
 
 For testing purposes, you should probably choose N. For production, you should probably choose Y.
 
-Lock down policy? (Y/N): n
+Lock down policy? (Y/N): y
 Policy locked down
 Setup complete
 ```
@@ -1080,6 +1080,7 @@ Content-type: application/octet-stream
 ```
 
 |Response header |Value|
+|----------------|-----|
 |x-cinched-data-key| The data key used during encryption|
 |x-cinched-crypto-period|The date at which the key was created as epoch day|
 |Content-type       |application/octet-stream   |
