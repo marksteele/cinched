@@ -229,7 +229,9 @@ At this time Cinched does not support dynamic cluster resizing or dynamic node m
 
 It is possible to resize the cluster, however this cannot be done online.
 
-Cinched shouldn't be terribly memory hungry, however I would expect that it will be very CPU hungry. It will use disk space for logging. After I run some benchmarks I'll add guidance on how much disk is used per log entry.
+All encryption/decryption operations in Cinched are performed in memory. Thus, you need to account for that when provisioning machines. A napkin calculation: Average size of documents * number of concurrent requests being handled * 2.
+
+As encryption/decryption is CPU intensive, provision as many cores as you can, Cinched can use them all.
 
 I have not performed much in the way of performance testing or tuning at this point. It's on the TODO list.
 
