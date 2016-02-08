@@ -6,5 +6,5 @@ gen_require(`
     type setfiles_t;
 ')
 
-ts_sysadmin(setfiles_t)
-ts_role(sysadm_r, sysadm_t)
+cinched_sysadmin(setfiles_t)
+cinched_operator(sysadm_r, sysadm_t)

@@ -46,7 +46,7 @@ init([]) ->
   StartupFSM = {
     cinched_startup_fsm,
     {cinched_startup_fsm, start_link,[]},
-    transient, 20000, worker, [cinched_startup_fsm]
+    permanent, 20000, worker, [cinched_startup_fsm]
    },
 
   Ensemble = {
@@ -58,13 +58,13 @@ init([]) ->
   EnsembleFSM = {
     cinched_ensemble_fsm,
     {cinched_ensemble_fsm,start_link,[]},
-    transient, 10000, worker, [cinched_ensemble_fsm]
+    permanent, 10000, worker, [cinched_ensemble_fsm]
    },
 
   ESKFSM = {
     cinched_load_esk_fsm,
     {cinched_load_esk_fsm,start_link,[]},
-    transient, 10000, worker, [cinched_load_esk_fsm]
+    permanent, 10000, worker, [cinched_load_esk_fsm]
    },
 
   {ok,

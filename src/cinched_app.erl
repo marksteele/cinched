@@ -33,56 +33,64 @@
 %% ===================================================================
 -spec start(_,_) -> {'error',_} | {'ok',pid()}.
 start(_StartType, _StartArgs) ->
-  %% Set process limits
-  %% Make sure we have enough FDs
-  {ok, _} = perc:setrlimit(
-              rlimit_nofile,
-              <<?OPEN_FILE_LIMIT:8/native-unsigned-integer-unit:8,
-                ?OPEN_FILE_LIMIT:8/native-unsigned-integer-unit:8>>
-             ),
+  case os:cmd("/usr/sbin/getenforce") =:= "Enforcing\n" andalso
+    os:cmd("/usr/sbin/semodule -l | /bin/grep -e " ++
+           "'\\(cinched[[:space:]]1.0\\|localuser[[:space:]]0.1\\)'")
+    =:= "cinched\t1.0\t\nlocaluser\t0.1\t\n" of
+    true ->
+      %% Set process limits
+      %% Make sure we have enough FDs
+      {ok, _} = perc:setrlimit(
+                  rlimit_nofile,
+                  <<?OPEN_FILE_LIMIT:8/native-unsigned-integer-unit:8,
+                    ?OPEN_FILE_LIMIT:8/native-unsigned-integer-unit:8>>
+                 ),
 
-  %% No core files!
-  {ok, _} = perc:setrlimit(
-              rlimit_core,
-              <<0:8/native-unsigned-integer-unit:8,
-                0:8/native-unsigned-integer-unit:8>>
-             ),
+      %% No core files!
+      {ok, _} = perc:setrlimit(
+                  rlimit_core,
+                  <<0:8/native-unsigned-integer-unit:8,
+                    0:8/native-unsigned-integer-unit:8>>
+                 ),
 
-  %% Set the erlang cookie
-  {ok,BinCookie} = file:read_file("/var/lib/cinched/erlang.cookie"),
-  erlang:set_cookie(node(),binary_to_atom(BinCookie,latin1)),
+      %% Set the erlang cookie
+      {ok,BinCookie} = file:read_file("/var/lib/cinched/erlang.cookie"),
+      erlang:set_cookie(node(),binary_to_atom(BinCookie,latin1)),
 
 
-  %% Drop privileges.
-  Pwd = passwderl:getpwnam(?CINCHED_USER),
-  ok = sanitize_env(Pwd),
-  ok = passwderl:setegid(Pwd#passwderl_pwd.gid),
-  ok = passwderl:seteuid(Pwd#passwderl_pwd.uid),
+      %% Drop privileges.
+      Pwd = passwderl:getpwnam(?CINCHED_USER),
+      ok = sanitize_env(Pwd),
+      ok = passwderl:setegid(Pwd#passwderl_pwd.gid),
+      ok = passwderl:seteuid(Pwd#passwderl_pwd.uid),
 
-  application:set_env(foldrerl,ca,?CACERTFILE),
-  application:set_env(foldrerl,cert,?CERTFILE),
-  application:set_env(foldrerl,key,?KEYFILE),
-  {ok,IP} = application:get_env(cinched,ip),
-  {ok,BACKUP_PORT} = application:get_env(cinched,backup_port),
-  application:set_env(foldrerl,address,{IP,BACKUP_PORT}),
+      application:set_env(foldrerl,ca,?CACERTFILE),
+      application:set_env(foldrerl,cert,?CERTFILE),
+      application:set_env(foldrerl,key,?KEYFILE),
+      {ok,IP} = application:get_env(cinched,ip),
+      {ok,BACKUP_PORT} = application:get_env(cinched,backup_port),
+      application:set_env(foldrerl,address,{IP,BACKUP_PORT}),
 
-  %% TODO
-  %% Deps started after dropping privileges. Should move
-  %% these to the main supervisor to bubble up failures since
-  %% we can't drop privileges before the main app starts.
-  Deps = [
-          ssl,
-          ranch,
-          cowboy,
-          cache,
-          exometer_core,
-          poolboy,
-          foldrerl,
-          leveldb_manager
-         ],
-  [ application:ensure_all_started(X, permanent) || X <- Deps ],
-  %% Kick off startup sequence. Should move everything into main sup.
-  cinched_sup:start_link().
+      %% TODO
+      %% Deps started after dropping privileges. Should move
+      %% these to the main supervisor to bubble up failures since
+      %% we can't drop privileges before the main app starts.
+      Deps = [
+              ssl,
+              ranch,
+              cowboy,
+              cache,
+              exometer_core,
+              poolboy,
+              foldrerl,
+              leveldb_manager
+             ],
+      [ application:ensure_all_started(X, permanent) || X <- Deps ],
+      %% Kick off startup sequence. Should move everything into main sup.
+      cinched_sup:start_link();
+    _ ->
+      {error,"Must be run in enforcing SELinux with policy loaded"}
+  end.
 
 -spec stop(_) -> 'ok'.
 stop(_State) ->

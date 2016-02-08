@@ -70,7 +70,7 @@ send_key_shard(_User,Shard) ->
      fun() ->
          case gen_fsm:sync_send_event(cinched_load_esk_fsm,{shard,Shard},?TIMEOUT) of
            key_recovered ->
-             io:format("Key recovered from shards~n",[]);
+             io:format("~nKey recovered from shards~n",[]);
            need_more_shards ->
              io:format("Need more shards~n",[])
          end

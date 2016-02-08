@@ -235,6 +235,13 @@ I have not performed much in the way of performance testing or tuning at this po
 
 ## Installation
 
+Note: Cinched supports sub-command autocompletion. To trigger it, double-TAB:
+
+```
+[root@dev1 cinched]# cinched s<TAB-TAB>
+send-key-shard  setup           start           status          stop
+```
+
 ### Setup the repo
 
 See instructions [here](http://www.control-alt-del.org/repo) for setting up the repository for libocsp and cinched.
@@ -732,8 +739,7 @@ To replace a node:
     * Make sure it has the same IP
     * Make sure it has the same configuration
     * Do *not* run the `cinched setup` setup wizard
-* Create a backup from a working node in the cluster
-* Copy backup files to the new node
+* Copy backup files to the replacement node
 * Run `cinched setup`, this will ensure proper SELinux filesystem properties/permissions
 * Start Cinched as normal with the `cinched start` command.
 * Enter the key shards

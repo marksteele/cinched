@@ -56,26 +56,27 @@ init([]) ->
   {ok, Threshold} = application:get_env(cinched, key_shard_threshold),
   {ok, load_esk, #state{ensemble=Ensemble,num_shards=Shards,threshold=Threshold},0}.
 
--spec load_esk(timeout,tuple()) -> {next_state,load_esk,tuple(),1000} |
-                                   {next_state,wait_shards,tuple()}.
 load_esk(timeout,S=#state{ensemble=Ensemble}) ->
-  case cinched:status() of
-    waiting_ensemble ->
-      {next_state, load_esk,S,1000};
+  case application:get_env(cinched,sk) of
+    {ok,_} ->
+      gen_fsm:send_event(cinched_startup_fsm, key_loaded),
+      {next_state, load_esk,S,10000};
     _ ->
-      case cinched_keystore:fetch(<<"esk">>,Ensemble) of
-        {ok,ESK} ->
-          gen_fsm:send_event(cinched_startup_fsm, waiting_shards),
-          {next_state, wait_shards, S#state{esk=ESK}};
+      case cinched:status() of
+        waiting_ensemble ->
+          {next_state, load_esk,S,1000};
         _ ->
-          gen_fsm:send_event(cinched_startup_fsm, waiting_init),
-          {next_state, load_esk, S, 1000}
+          case cinched_keystore:fetch(<<"esk">>,Ensemble) of
+            {ok,ESK} ->
+              gen_fsm:send_event(cinched_startup_fsm, waiting_shards),
+              {next_state, wait_shards, S#state{esk=ESK}};
+            _ ->
+              gen_fsm:send_event(cinched_startup_fsm, waiting_init),
+              {next_state, load_esk, S, 1000}
+          end
       end
   end.
 
--spec load_esk(init,_,tuple()) ->
-                  {stop, normal, {ok, list()},tuple()} |
-                  {reply, error_retrying, next_state, load_esk, tuple(), 0}.
 load_esk(init, _, S=#state{ensemble=Ensemble,threshold=T,num_shards=N}) ->
   SK = nacl:secretbox_key(),
   ShardKey = nacl:secretbox_key(),
@@ -88,16 +89,12 @@ load_esk(init, _, S=#state{ensemble=Ensemble,threshold=T,num_shards=N}) ->
     ok ->
       application:set_env(cinched, sk, SK),
       gen_fsm:send_event(cinched_startup_fsm, key_loaded),
-      {stop, normal, {ok, Shards}, S};
+      {reply, {ok,Shards}, load_esk,S,10000};
     _ ->
       %% Error saving to ensemble. Start over.
-      {reply, error_retrying, next_state, load_esk, S, 0}
+      {reply, error_retrying, load_esk, S, 0}
   end.
 
--spec wait_shards({shard,list()},_,tuple()) ->
-                     {stop, normal, key_recovered,tuple()} |
-                     {reply, need_more_shards, wait_shards, tuple()} |
-                     {next_state, wait_shards, tuple()}.
 wait_shards({shard,Shard}, _, S=#state{shards=Shards0,threshold=T,esk=ESK}) ->
   try
     Shards = Shards0 ++ [ binary_to_term(base64:decode(Shard)) ],
@@ -106,7 +103,7 @@ wait_shards({shard,Shard}, _, S=#state{shards=Shards0,threshold=T,esk=ESK}) ->
         case decrypt_esk(Shards,ESK) of
           ok ->
             gen_fsm:send_event(cinched_startup_fsm, key_loaded),
-            {stop, normal, key_recovered, S};
+            {reply, key_recovered, load_esk,S,10000};
           _ ->
             {reply, need_more_shards, wait_shards, S#state{shards=[]}}
         end;
@@ -117,6 +114,7 @@ wait_shards({shard,Shard}, _, S=#state{shards=Shards0,threshold=T,esk=ESK}) ->
     _:_ ->
       {reply, need_more_shards, wait_shards, S#state{shards=[]}}
   end;
+
 wait_shards(_, _, S) ->
   {next_state, wait_shards, S}.
 

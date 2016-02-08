@@ -1,8 +1,8 @@
 #!/bin/bash
 
 echo "Testing invalid cert: "
-curl -X POST --cert fixtures/invalid.control-alt-del.org.crt --key fixtures/invalid.control-alt-del.org.key \
---cacert fixtures/cacert.pem --tlsv1.2  \
+curl -X POST --cert ../fixtures/invalid.control-alt-del.org.crt --key ../fixtures/invalid.control-alt-del.org.key \
+--cacert ../fixtures/cacert.pem --tlsv1.2  \
 https://dev1.control-alt-del.org:55443/key/data-key
 echo
 
@@ -10,8 +10,8 @@ echo "Input is foo and bar"
 PAYLOAD="{\"foo\":\"bar\",\"bar\":\"baz\"}"
 
 DK=`curl -s \
--X POST --cert fixtures/star.control-alt-del.org.crt --key fixtures/star.control-alt-del.org.key \
---cacert fixtures/cacert.pem --tlsv1.2  \
+-X POST --cert ../fixtures/star.control-alt-del.org.crt --key ../fixtures/star.control-alt-del.org.key \
+--cacert ../fixtures/cacert.pem --tlsv1.2  \
 https://dev1.control-alt-del.org:55443/key/data-key | jq -r ".dataKey"`
 echo "DK: $DK"
 
@@ -21,8 +21,8 @@ RAW=`curl -s \
   -H "x-cinched-data-key: $DK" \
   -H "x-cinched-metadata: foobar" \
   -X POST -d "$PAYLOAD" \
-  --cert fixtures/star.control-alt-del.org.crt --key fixtures/star.control-alt-del.org.key \
-  --cacert fixtures/cacert.pem \
+  --cert ../fixtures/star.control-alt-del.org.crt --key ../fixtures/star.control-alt-del.org.key \
+  --cacert ../fixtures/cacert.pem \
   --tlsv1.2 \
   https://dev1.control-alt-del.org:55443/doc/encrypt?fields=\(bar\)`
 
@@ -40,8 +40,8 @@ DEC=`curl -s \
   -X POST -d "
  {\"foo\": \"bar\",
  \"bar\": \"$BAR\"}
-" --cert fixtures/star.control-alt-del.org.crt --key fixtures/star.control-alt-del.org.key \
-  --cacert fixtures/cacert.pem \
+" --cert ../fixtures/star.control-alt-del.org.crt --key ../fixtures/star.control-alt-del.org.key \
+  --cacert ../fixtures/cacert.pem \
   --tlsv1.2 \
 https://dev1.control-alt-del.org:55443/doc/decrypt?fields=\(bar\)`
 
@@ -60,8 +60,8 @@ curl -s \
   -H "x-cinched-data-key: $DK" \
   -H "x-cinched-metadata: foobar" \
   -X POST --data-binary @- \
-  --cert fixtures/star.control-alt-del.org.crt --key fixtures/star.control-alt-del.org.key \
-  --cacert fixtures/cacert.pem \
+  --cert ../fixtures/star.control-alt-del.org.crt --key ../fixtures/star.control-alt-del.org.key \
+  --cacert ../fixtures/cacert.pem \
   --tlsv1.2 \
   https://dev1.control-alt-del.org:55443/blob/encrypt | \
 curl -s \
@@ -69,8 +69,8 @@ curl -s \
   -H "x-cinched-data-key: $DK" \
   -H "x-cinched-metadata: fobarr" \
   -H 'Content-Type: application/octet-stream' \
-  -X POST --data-binary @- --cert fixtures/star.control-alt-del.org.crt --key fixtures/star.control-alt-del.org.key \
-  --cacert fixtures/cacert.pem \
+  -X POST --data-binary @- --cert ../fixtures/star.control-alt-del.org.crt --key ../fixtures/star.control-alt-del.org.key \
+  --cacert ../fixtures/cacert.pem \
   --tlsv1.2 \
 https://dev1.control-alt-del.org:55443/blob/decrypt`
 
@@ -116,8 +116,8 @@ echo
 ENCDOC=`cat <<EOF | curl \
     -H 'Content-Type: application/json' -H 'Accept: application/json' \
     -H "x-cinched-data-key: $DK" -H "x-cinched-metadata: foobar" -X POST \
-    --data-binary @-   --cert fixtures/star.control-alt-del.org.crt \
-    --key fixtures/star.control-alt-del.org.key --cacert fixtures/cacert.pem \
+    --data-binary @-   --cert ../fixtures/star.control-alt-del.org.crt \
+    --key ../fixtures/star.control-alt-del.org.key --cacert ../fixtures/cacert.pem \
     --tlsv1.2 \
     https://dev1.control-alt-del.org:55443/doc/encrypt?fields=\(glossary.GlossDiv.GlossList.GlossEntry.GlossDef.GlossSeeAlso.2\)
 $DOC
@@ -135,8 +135,8 @@ echo
 cat <<EOF | curl -H 'Content-Type: application/json' -H 'Accept: application/json' \
 -H "x-cinched-data-key: $DK" \
 -H "x-cinched-metadata: foobar" -X POST \
---data-binary @-  --cert fixtures/star.control-alt-del.org.crt \
---key fixtures/star.control-alt-del.org.key --cacert fixtures/cacert.pem --tlsv1.2  \
+--data-binary @-  --cert ../fixtures/star.control-alt-del.org.crt \
+--key ../fixtures/star.control-alt-del.org.key --cacert ../fixtures/cacert.pem --tlsv1.2  \
 https://dev1.control-alt-del.org:55443/doc/decrypt?fields=\(glossary.GlossDiv.GlossList.GlossEntry.GlossDef.GlossSeeAlso.2\) | jq
 $ENCDOC
 EOF

@@ -30,8 +30,9 @@
 -export([
          init/1,
          check_ensemble_enabled/2,
-         wait_for_cluster/2,
+         check_cluster_status/2,
          wait_for_ensembles/2,
+         wait_cluster_members/2,
          create_missing_ensembles/2,
          bootstrap_ensemble/2,
          check_cluster/2,
@@ -50,15 +51,11 @@
 start_link() ->
   gen_fsm:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec init([]) -> {ok, check_ensemble_enabled, tuple(),0}.
 init([]) ->
   Ring = cinched:ring(),
   {ok, Nodes} = application:get_env(cinched,nodes),
   {ok, check_ensemble_enabled, #state{ring=Ring,nodes=Nodes}, 0}.
 
--spec check_ensemble_enabled(timeout,tuple()) ->
-                                {next_state,check_cluster,tuple(),0} |
-                                {next_state,wait_for_ensembles,tuple(),10000}.
 check_ensemble_enabled(timeout,S) ->
   case riak_ensemble_manager:enabled() of
     true ->
@@ -71,26 +68,57 @@ check_ensemble_enabled(timeout,S) ->
           {next_state, wait_for_ensembles, S, 10000}
       end;
     false ->
-      {next_state, wait_for_cluster, S, 0}
+      {next_state, wait_cluster_members, S, 0}
   end.
 
--spec wait_for_ensembles(timeout,tuple()) ->
-                            {stop,normal,tuple()} |
-                            {next_state,wait_for_ensembles,tuple(),1000}.
-wait_for_ensembles(timeout, S=#state{ring=Ring}) ->
-  {ok, KnownEnsembles} = riak_ensemble_manager:known_ensembles(),
-  CurrentEnsembles = orddict:fetch_keys(KnownEnsembles),
-  MissingEnsembles = proplists:get_keys(Ring) -- CurrentEnsembles,
-  case MissingEnsembles of
-    [] ->
-      gen_fsm:send_event(cinched_startup_fsm, ensemble_up),
-      {stop, normal, S};
+wait_cluster_members(timeout, S=#state{nodes=Nodes}) ->
+  case lists:sort(nodes()) =:= lists:sort(Nodes) of
+    true ->
+      {next_state, check_cluster_status, S, 0};
+    false ->
+      {next_state, wait_cluster_members,S,1000}
+  end.
+
+check_cluster_status(timeout, S=#state{nodes=Nodes}) ->
+  Status = lists:foldl(
+             fun(X,Acc) ->
+                 case catch rpc:call(X,riak_ensemble_manager,enabled,[]) of
+                   true ->
+                     Acc ++ [{X, true}];
+                   false ->
+                     Acc ++ [{X, false}];
+                   _ ->
+                     Acc ++ [{X, error}]
+                 end
+             end,
+             [],
+             Nodes),
+  HaveErrors = [ X || {X, Y} <- Status, Y =:= error ] =/= [],
+  Enabled = [ X || {X, Y} <- Status, Y =:= true ],
+  case {Enabled, HaveErrors} of
+    {[], false} ->
+      {next_state, bootstrap_ensemble, S, 0};
     _ ->
-      {next_state, wait_for_ensembles, S, 1000}
+      {next_state, check_ensemble_enabled, S, 1000}
   end.
 
--spec check_cluster(timeout,tuple()) ->
-                       {next_state, create_missing_ensembles,tuple(),0}.
+bootstrap_ensemble(_,S=#state{nodes=Nodes}) ->
+  case global:trans({ensemble_bootstrap,self()},
+                    fun() ->
+                        try
+                          riak_ensemble_manager:enable()
+                        catch
+                          _:_ ->
+                            error
+                        end
+                    end,
+                    Nodes,0) of
+    ok ->
+      {next_state, check_ensemble_enabled, S, 5000};
+    _ ->
+      {next_state, check_ensemble_enabled, S, 10000}
+  end.
+
 check_cluster(timeout, S=#state{
                       nodes=Nodes,
                       rootleader=RootLeader
@@ -115,9 +143,6 @@ check_cluster(timeout, S=#state{
   ],
   {next_state, create_missing_ensembles, S, 0}.
 
--spec create_missing_ensembles(timeout,tuple()) ->
-                                  {stop, normal,tuple()} |
-                                  {next_state,create_missing_ensembles,tuple(),1000}.
 create_missing_ensembles(timeout, S=#state{ring=Ring}) ->
   {ok, KnownEnsembles} = riak_ensemble_manager:known_ensembles(),
   CurrentEnsembles = orddict:fetch_keys(KnownEnsembles),
@@ -146,45 +171,29 @@ create_missing_ensembles(timeout, S=#state{ring=Ring}) ->
                   MissingEnsembles),
       case length(Created) =:= length(MissingEnsembles) of
         true ->
-          gen_fsm:send_event(cinched_startup_fsm, ensemble_up),
-          {stop, normal, S};
+          gen_fsm:send_event(cinched_startup_fsm, ensemble_up);
         _ ->
-          {next_state, create_missing_ensembles, S, 1000}
+          ok
       end;
     false ->
+      gen_fsm:send_event(cinched_startup_fsm, ensemble_up)
+  end,
+  {next_state,check_ensemble_enabled,S,10000}.
+
+
+-spec wait_for_ensembles(timeout,tuple()) ->
+                            {stop,normal,tuple()} |
+                            {next_state,wait_for_ensembles,tuple(),1000}.
+wait_for_ensembles(timeout, S=#state{ring=Ring}) ->
+  {ok, KnownEnsembles} = riak_ensemble_manager:known_ensembles(),
+  CurrentEnsembles = orddict:fetch_keys(KnownEnsembles),
+  MissingEnsembles = proplists:get_keys(Ring) -- CurrentEnsembles,
+  case MissingEnsembles of
+    [] ->
       gen_fsm:send_event(cinched_startup_fsm, ensemble_up),
-      {stop, normal, S}
-  end.
-
--spec wait_for_cluster(timeout,tuple()) ->
-                          {next_state,bootstrap_ensemble,tuple(),0} |
-                          {check_ensemble_enabled,tuple(),1000}.
-wait_for_cluster(timeout, S=#state{nodes=Nodes}) ->
-  {Enabled, HaveErrors} = check_ensemble_nodes(Nodes),
-  case {Enabled, HaveErrors} of
-    {[], false} ->
-      {next_state, bootstrap_ensemble, S, 0};
+      {next_state, check_ensemble_enabled,S,10000};
     _ ->
-      {next_state, check_ensemble_enabled, S, 1000}
-  end.
-
--spec bootstrap_ensemble(timeout,tuple())->
-                            {next_state, check_ensemble_enabled, tuple(), 5000 | 10000}.
-bootstrap_ensemble(_,S=#state{nodes=Nodes}) ->
-  case global:trans({ensemble_bootstrap,self()},
-                    fun() ->
-                        try
-                          riak_ensemble_manager:enable()
-                        catch
-                          _:_ ->
-                            error
-                        end
-                    end,
-                    Nodes,0) of
-    ok ->
-      {next_state, check_ensemble_enabled, S, 5000};
-    _ ->
-      {next_state, check_ensemble_enabled, S, 10000}
+      {next_state, wait_for_ensembles, S, 1000}
   end.
 
 -spec handle_event(_,atom(),tuple()) -> {next_state,atom(),tuple()}.
@@ -206,22 +215,3 @@ terminate(_Reason, _StateName, _State) ->
 -spec code_change(_,atom(),tuple(),_) -> {ok,atom(),tuple()}.
 code_change(_OldVsn, StateName, State, _Extra) ->
   {ok, StateName, State}.
-
--spec check_ensemble_nodes([node()]) -> {[node()], boolean()}.
-check_ensemble_nodes(Nodes) ->
-  Status = lists:foldl(
-             fun(X,Acc) ->
-                 case catch rpc:call(X,riak_ensemble_manager,enabled,[]) of
-                   true ->
-                     Acc ++ [{X, true}];
-                   false ->
-                     Acc ++ [{X, false}];
-                   _ ->
-                     Acc ++ [{X, error}]
-                 end
-             end,
-             [],
-             Nodes),
-  HaveErrors = [ X || {X, Y} <- Status, Y =:= error ] =/= [],
-  Enabled = [ X || {X, Y} <- Status, Y =:= true ],
-  {Enabled, HaveErrors}.

@@ -3,142 +3,147 @@ policy_module(cinched,1.0)
 require {
   type epmd_port_t, hwdata_t, ptmx_t, security_t, xauth_exec_t, devpts_t;
   type ephemeral_port_t, etc_runtime_t, cgroup_t, admin_home_t;
-  type ptmx_t, admin_home_t, lib_t, user_home_dir_t;
+  type ptmx_t, admin_home_t, lib_t, user_home_dir_t, load_policy_exec_t;
+  type semanage_exec_t,semanage_read_lock_t,semanage_store_t,setfiles_exec_t;
 };
 
-type ts_cli_t;
-type ts_exec_t;
-type ts_etc_t;
-type ts_t;
-type ts_log_t;
-type ts_audit_log_t;
-type ts_lib_t;
 
-fs_associate(ts_cli_t)
-fs_associate(ts_exec_t)
-fs_associate(ts_t)
-fs_associate(ts_log_t)
-fs_associate(ts_audit_log_t)
-fs_associate(ts_lib_t)
+type cinched_service_t;
+type cinched_exec_t;
+type cinched_etc_t;
+type cinched_t;
+type cinched_log_t;
+type cinched_audit_log_t;
+type cinched_lib_t;
 
-domain_base_type(ts_cli_t)
-domain_dontaudit_list_all_domains_state(ts_cli_t)
-domain_use_interactive_fds(ts_cli_t)
+fs_associate(cinched_service_t)
+fs_associate(cinched_exec_t)
+fs_associate(cinched_t)
+fs_associate(cinched_log_t)
+fs_associate(cinched_audit_log_t)
+fs_associate(cinched_lib_t)
 
-can_exec(ts_cli_t, ts_exec_t)
+domain_base_type(cinched_service_t)
+domain_dontaudit_list_all_domains_state(cinched_service_t)
+domain_use_interactive_fds(cinched_service_t)
 
-init_read_utmp(ts_cli_t)
+can_exec(cinched_service_t, cinched_exec_t)
 
-files_config_file(ts_etc_t)
+init_read_utmp(cinched_service_t)
 
-userdom_use_user_terminals(ts_cli_t)
+files_config_file(cinched_etc_t)
 
-allow ts_cli_t user_home_dir_t:dir { getattr search read open };
-allow ts_cli_t admin_home_t:dir {write add_name read};
-allow ts_cli_t admin_home_t:file { read getattr open create write setattr};
-allow ts_cli_t cgroup_t:dir { getattr search };
-allow ts_cli_t cgroup_t:file { read open };
-allow ts_cli_t chkpwd_t:process { siginh noatsecure rlimitinh };
-allow ts_cli_t devpts_t:chr_file { read write getattr open ioctl };
-allow ts_cli_t devpts_t:dir { read getattr open search write };
-allow ts_cli_t ephemeral_port_t:tcp_socket name_connect;
-allow ts_cli_t epmd_port_t:tcp_socket { name_bind name_connect };
-allow ts_cli_t etc_runtime_t:file write;
-allow ts_cli_t hwdata_t:file { read getattr open };
-allow ts_cli_t ptmx_t:chr_file { read write open getattr ioctl};
-allow ts_cli_t security_t:security compute_av;
-allow ts_cli_t self:capability { sys_ptrace kill dac_override dac_read_search chown fowner fsetid setuid setgid sys_nice sys_tty_config sys_admin sys_resource ipc_lock };
-allow ts_cli_t self:capability2 block_suspend;
-allow ts_cli_t self:fifo_file rw_fifo_file_perms;
-allow ts_cli_t self:file { getattr read };
-allow ts_cli_t self:netlink_selinux_socket create_socket_perms;
-allow ts_cli_t self:process { signal_perms setsched setrlimit };
+userdom_use_user_terminals(cinched_service_t)
 
-allow ts_cli_t self:tcp_socket { create_stream_socket_perms name_connect };
+allow cinched_service_t user_home_dir_t:dir { getattr search read open };
+allow cinched_service_t admin_home_t:dir {write add_name read};
+allow cinched_service_t admin_home_t:file { read getattr open create write setattr};
+allow cinched_service_t cgroup_t:dir { getattr search };
+allow cinched_service_t cgroup_t:file { read open };
+allow cinched_service_t chkpwd_t:process { siginh noatsecure rlimitinh };
+allow cinched_service_t devpts_t:chr_file { read write getattr open ioctl };
+allow cinched_service_t devpts_t:dir { read getattr open search write };
+allow cinched_service_t ephemeral_port_t:tcp_socket name_connect;
+allow cinched_service_t epmd_port_t:tcp_socket { name_bind name_connect };
+allow cinched_service_t etc_runtime_t:file write;
+allow cinched_service_t hwdata_t:file { read getattr open };
+allow cinched_service_t ptmx_t:chr_file { read write open getattr ioctl};
+allow cinched_service_t security_t:security compute_av;
+allow cinched_service_t self:capability { sys_ptrace kill dac_override dac_read_search chown fowner fsetid setuid setgid sys_nice sys_tty_config sys_admin sys_resource ipc_lock };
+allow cinched_service_t self:capability2 block_suspend;
+allow cinched_service_t self:fifo_file rw_fifo_file_perms;
+allow cinched_service_t self:file { getattr read };
+allow cinched_service_t self:netlink_selinux_socket create_socket_perms;
+allow cinched_service_t self:process { signal_perms setsched setrlimit };
 
+allow cinched_service_t self:tcp_socket { create_stream_socket_perms name_connect };
 
-allow ts_cli_t self:udp_socket create_stream_socket_perms;
-allow ts_cli_t self:unix_dgram_socket create_socket_perms;
-allow ts_cli_t self:unix_stream_socket { create_stream_socket_perms connectto };
-allow ts_cli_t ts_audit_log_t:dir create_dir_perms;
-allow ts_cli_t ts_audit_log_t:file { append create getattr open read };
-allow ts_cli_t ts_lib_t:dir { getattr search read open };
-allow ts_cli_t ts_lib_t:file { getattr open read mmap_file_perms execute_no_trans };
-allow ts_cli_t ts_etc_t:dir list_dir_perms;
-allow ts_cli_t ts_exec_t:file { open read mmap_file_perms ioctl lock entrypoint };
-allow ts_cli_t ts_exec_t:dir { read getattr open search };
-allow ts_cli_t ts_exec_t:lnk_file { getattr read };
-allow ts_cli_t ts_log_t:dir create_dir_perms;
-allow ts_cli_t ts_t:dir {create_dir_perms rename reparent rmdir };
-allow ts_cli_t xauth_exec_t:file execute;
+allow cinched_service_t self:udp_socket create_stream_socket_perms;
+allow cinched_service_t self:unix_dgram_socket create_socket_perms;
+allow cinched_service_t self:unix_stream_socket { create_stream_socket_perms connectto };
+allow cinched_service_t cinched_audit_log_t:dir create_dir_perms;
+allow cinched_service_t cinched_audit_log_t:file { append create getattr open read };
+allow cinched_service_t cinched_lib_t:dir { getattr search read open };
+allow cinched_service_t cinched_lib_t:file { getattr open read mmap_file_perms execute_no_trans };
+allow cinched_service_t cinched_etc_t:dir list_dir_perms;
+allow cinched_service_t cinched_exec_t:file { open read mmap_file_perms ioctl lock entrypoint };
+allow cinched_service_t cinched_exec_t:dir { read getattr open search };
+allow cinched_service_t cinched_exec_t:lnk_file { getattr read };
+allow cinched_service_t cinched_log_t:dir create_dir_perms;
+allow cinched_service_t cinched_t:dir {create_dir_perms rename reparent rmdir };
+allow cinched_service_t xauth_exec_t:file execute;
 
-allow ts_cli_t lib_t:dir write;
-allow ts_cli_t lib_t:file { write setattr };
-allow ts_cli_t ts_log_t:dir setattr;
-allow ts_cli_t ts_t:dir setattr;
+allow cinched_service_t load_policy_exec_t:file execute;
+allow cinched_service_t semanage_exec_t:file { read execute open getattr execute_no_trans };
+allow cinched_service_t semanage_read_lock_t:file { read lock open };
+allow cinched_service_t semanage_store_t:dir { read write search open };
+allow cinched_service_t semanage_store_t:file { read getattr open };
+allow cinched_service_t setfiles_exec_t:file execute;
 
-dontaudit ts_cli_t ts_lib_t:file { write append };
-dontaudit ts_cli_t ts_lib_t:dir write;
+allow cinched_service_t lib_t:dir write;
+allow cinched_service_t lib_t:file { write setattr };
+allow cinched_service_t cinched_log_t:dir setattr;
+allow cinched_service_t cinched_t:dir setattr;
 
-files_dontaudit_search_home(ts_cli_t)
-files_manage_etc_files(ts_cli_t)
-files_read_etc_runtime_files(ts_cli_t)
-files_read_usr_files(ts_cli_t)
-files_read_etc_files(ts_cli_t)
-files_search_etc(ts_cli_t)
+dontaudit cinched_service_t cinched_lib_t:file { write append };
+dontaudit cinched_service_t cinched_lib_t:dir write;
 
-logging_send_audit_msgs(ts_cli_t)
-logging_send_syslog_msg(ts_cli_t)
+files_dontaudit_search_home(cinched_service_t)
+files_manage_etc_files(cinched_service_t)
+files_read_etc_runtime_files(cinched_service_t)
+files_read_usr_files(cinched_service_t)
+files_read_etc_files(cinched_service_t)
+files_search_etc(cinched_service_t)
 
-manage_files_pattern(ts_cli_t, ts_etc_t, ts_etc_t)
-manage_files_pattern(ts_cli_t, ts_log_t, ts_log_t)
-manage_files_pattern(ts_cli_t, ts_audit_log_t, ts_audit_log_t)
-manage_files_pattern(ts_cli_t, ts_t, ts_t)
+manage_files_pattern(cinched_service_t, cinched_etc_t, cinched_etc_t)
+manage_files_pattern(cinched_service_t, cinched_log_t, cinched_log_t)
+manage_files_pattern(cinched_service_t, cinched_audit_log_t, cinched_audit_log_t)
+manage_files_pattern(cinched_service_t, cinched_t, cinched_t)
 
-manage_dirs_pattern(ts_cli_t, ts_audit_log_t, ts_audit_log_t)
+manage_dirs_pattern(cinched_service_t, cinched_audit_log_t, cinched_audit_log_t)
 
-fs_getattr_tmpfs(ts_cli_t)
-fs_getattr_all_fs(ts_cli_t)
-fs_search_auto_mountpoints(ts_cli_t)
-fs_rw_hugetlbfs_files(ts_cli_t)
+fs_getattr_tmpfs(cinched_service_t)
+fs_getattr_all_fs(cinched_service_t)
+fs_search_auto_mountpoints(cinched_service_t)
+fs_rw_hugetlbfs_files(cinched_service_t)
 
-kernel_read_kernel_sysctls(ts_cli_t)
-kernel_read_system_state(ts_cli_t)
-kernel_list_proc(ts_cli_t)
-kernel_read_all_sysctls(ts_cli_t)
-kernel_read_proc_symlinks(ts_cli_t)
+kernel_read_kernel_sysctls(cinched_service_t)
+kernel_read_system_state(cinched_service_t)
+kernel_list_proc(cinched_service_t)
+kernel_read_all_sysctls(cinched_service_t)
+kernel_read_proc_symlinks(cinched_service_t)
 
-corecmd_exec_bin(ts_cli_t)
-corecmd_exec_shell(ts_cli_t)
+corecmd_exec_bin(cinched_service_t)
+corecmd_exec_shell(cinched_service_t)
 
-corenet_sendrecv_all_client_packets(ts_cli_t)
-corenet_tcp_connect_all_ports(ts_cli_t)
-corenet_tcp_sendrecv_all_ports(ts_cli_t)
-corenet_tcp_sendrecv_generic_if(ts_cli_t)
-corenet_tcp_sendrecv_generic_node(ts_cli_t)
-corenet_tcp_sendrecv_all_ports(ts_cli_t)
-corenet_tcp_bind_generic_node(ts_cli_t)
-corenet_tcp_bind_postgresql_port(ts_cli_t)
-corenet_tcp_connect_auth_port(ts_cli_t)
+corenet_sendrecv_all_client_packets(cinched_service_t)
+corenet_tcp_connect_all_ports(cinched_service_t)
+corenet_tcp_sendrecv_all_ports(cinched_service_t)
+corenet_tcp_sendrecv_generic_if(cinched_service_t)
+corenet_tcp_sendrecv_generic_node(cinched_service_t)
+corenet_tcp_sendrecv_all_ports(cinched_service_t)
+corenet_tcp_bind_generic_node(cinched_service_t)
+corenet_tcp_bind_postgresql_port(cinched_service_t)
+corenet_tcp_connect_auth_port(cinched_service_t)
 
-corenet_all_recvfrom_unlabeled(ts_cli_t)
-corenet_all_recvfrom_netlabel(ts_cli_t)
-corenet_udp_sendrecv_generic_if(ts_cli_t)
-corenet_udp_sendrecv_generic_node(ts_cli_t)
-corenet_udp_sendrecv_all_ports(ts_cli_t)
-corenet_udp_bind_generic_node(ts_cli_t)
+corenet_all_recvfrom_unlabeled(cinched_service_t)
+corenet_all_recvfrom_netlabel(cinched_service_t)
+corenet_udp_sendrecv_generic_if(cinched_service_t)
+corenet_udp_sendrecv_generic_node(cinched_service_t)
+corenet_udp_sendrecv_all_ports(cinched_service_t)
+corenet_udp_bind_generic_node(cinched_service_t)
 
-dev_read_sysfs(ts_cli_t)
-dev_read_urand(ts_cli_t)
-dev_read_rand(ts_cli_t)
+dev_read_sysfs(cinched_service_t)
+dev_read_urand(cinched_service_t)
+dev_read_rand(cinched_service_t)
 
-term_use_controlling_term(ts_cli_t)
+term_use_controlling_term(cinched_service_t)
 
-getty_use_fds(ts_cli_t)
-auth_use_pam(ts_cli_t)
+getty_use_fds(cinched_service_t)
+auth_use_pam(cinched_service_t)
 
-miscfiles_read_localization(ts_cli_t)
-hostname_exec(ts_cli_t)
+miscfiles_read_localization(cinched_service_t)
+hostname_exec(cinched_service_t)
 
-attribute_role ts_roles;
-role ts_roles types ts_cli_t;
+attribute_role cinched_roles;
+role cinched_roles types cinched_service_t;

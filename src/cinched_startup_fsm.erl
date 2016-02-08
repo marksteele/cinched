@@ -34,6 +34,7 @@
          waiting_shards/2,
          waiting_init/2,
          waiting_sk/2,
+         started/2,
          starting_services/2,
          handle_event/3,
          handle_sync_event/4,
@@ -53,26 +54,39 @@ start_link() ->
 init([]) ->
   {ok, waiting_ensemble, {}}.
 
--spec waiting_ensemble(ensemble_up,{}) -> {next_state,waiting_sk,{}}.
+%% Normal startup sequence
 waiting_ensemble(ensemble_up,{}) ->
-  {next_state, waiting_sk, {}}.
+  {next_state, waiting_sk, {}};
+%% If startup FSM crashes events might come in out of order
+waiting_ensemble(key_loaded,{}) ->
+  {next_state, starting_services,{},0}.
 
--spec waiting_sk(waiting_shards,{}) -> {next_state, waiting_shards,{}} ;
-                (waiting_init,{}) -> {next_state, waiting_init,{}}.
-waiting_sk(Next,S) ->
-  {next_state,Next,S}.
+%% Ensemble or startup FSM crash
+waiting_sk(ensemble_up,{}) ->
+  {next_state, waiting_sk, {}};
+%% ESK or startup fsm crash
+waiting_sk(key_loaded,{}) ->
+  {next_state,starting_services,{},0};
+%% SK not found
+waiting_sk(waiting_init,{}) ->
+  {next_state,waiting_init,{}};
+%% SK found
+waiting_sk(waiting_shards,{}) ->
+  {next_state,waiting_shards,{}}.
 
--spec waiting_init(waiting_shards,{}) -> {next_state, waiting_shards,{}} ;
-                  (key_loaded,{}) -> {next_state, starting_services,{},0};
-                  (waiting_init,{}) ->  {next_state, waiting_init,{}}.
+%% SK not found
 waiting_init(waiting_init,S) ->
   {next_state,waiting_init,S};
+%% SK found (initialized from another node)
 waiting_init(waiting_shards,S) ->
   {next_state,waiting_shards,S};
+%% Initialized on this node
 waiting_init(key_loaded,S) ->
   {next_state,starting_services,S,0}.
 
--spec waiting_shards(key_loaded,{}) -> {next_state,starting_services,{},0}.
+%% Ensemble/Startup FSM crash
+waiting_shards(ensemble_up,{}) ->
+  {next_state, waiting_shards,{}};
 waiting_shards(key_loaded,S) ->
   {next_state,starting_services,S,0}.
 
@@ -85,11 +99,12 @@ starting_services(timeout,S) ->
   ok = start_cowboy(),
   {next_state, started, S}.
 
--spec handle_event(_,_,_) -> {next_state,atom(),{}}.
+started(_,{}) ->
+  {next_state,started,{}}.
+
 handle_event(_Event, StateName, State) ->
   {next_state, StateName, State}.
 
--spec handle_sync_event(status,_,atom(),{}) -> {reply,atom(),atom(),{}}.
 handle_sync_event(status,_,StateName,S) ->
   {reply, StateName, StateName, S}.
 
@@ -107,176 +122,191 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 
 -spec start_workers() -> ok.
 start_workers() ->
-  {ok, PoolSize} = application:get_env(cinched, workers),
-  {ok, PoolOverflow} = application:get_env(cinched, workers_overflow),
-  Args = [{name, {local, pb}},{size,PoolSize},{max_overflow,PoolOverflow},
-          {worker_module, cinched_crypto_worker}],
-  Spec = {pb, {poolboy, start_link, [Args]},
-          permanent, 5000, worker, [poolboy]},
-  {ok, _Pid} = supervisor:start_child(cinched_sup, Spec),
+  case is_pid(whereis(pb)) of
+    false ->
+      {ok, PoolSize} = application:get_env(cinched, workers),
+      {ok, PoolOverflow} = application:get_env(cinched, workers_overflow),
+      Args = [{name, {local, pb}},{size,PoolSize},{max_overflow,PoolOverflow},
+              {worker_module, cinched_crypto_worker}],
+      Spec = {pb, {poolboy, start_link, [Args]},
+              permanent, 5000, worker, [poolboy]},
+      {ok, _Pid} = supervisor:start_child(cinched_sup, Spec);
+    true ->
+      ok
+  end,
   ok.
 
 -spec start_audit_log() -> ok.
 start_audit_log() ->
-  {ok, _ChildKS} = supervisor:start_child(
-                    cinched_sup,
-                    {
-                      cinched_audit_sup,
-                      {
-                        cinched_log,
-                        start_link,
-                        []
-                      },
-                      permanent,
-                      10000,
-                      worker,
-                      [cinched_log]
-                    }
-                   ),
+  case is_pid(whereis(cinched_audit_sup)) of
+    false ->
+      {ok, _ChildKS} = supervisor:start_child(
+                         cinched_sup,
+                         {
+                           cinched_audit_sup,
+                           {
+                             cinched_log,
+                             start_link,
+                             []
+                           },
+                           permanent,
+                           10000,
+                           worker,
+                           [cinched_log]
+                         }
+                        );
+    true ->
+      ok
+  end,
   ok.
 
 %% @doc Starts the webserver
 -spec start_cowboy() -> ok.
 start_cowboy() ->
-  {ok, Interface} = application:get_env(cinched, ip),
-  {ok, Port} = application:get_env(cinched, tls_port),
-  {ok, HTTPAcceptors} = application:get_env(cinched, http_acceptors),
-  {ok, ParsedInterface} = inet:parse_address(Interface),
+  case is_pid(whereis(cinched_cb_sup)) of
+    false ->
+      {ok, Interface} = application:get_env(cinched, ip),
+      {ok, Port} = application:get_env(cinched, tls_port),
+      {ok, HTTPAcceptors} = application:get_env(cinched, http_acceptors),
+      {ok, ParsedInterface} = inet:parse_address(Interface),
 
-  {ok, CACertBin} = file:read_file(?CACERTFILE),
+      {ok, CACertBin} = file:read_file(?CACERTFILE),
 
-  Dispatch = cowboy_router:compile(
-               [
-                {'_',
-                 [
-                  {<<"/doc/[:action]">>, cinched_crypto_field_rest_handler, []},
-                  {<<"/blob/[:action]">>, cinched_crypto_blob_rest_handler, []},
-                  {<<"/key/data-key">>, cinched_data_key_rest_handler, []}
-                 ]
-                }
-               ]
-              ),
-  CBOptions = [{env, [{dispatch, Dispatch}]}],
-  RanchOptions = [
-                  {cacertfile,?CACERTFILE},
-                  {certfile,?CERTFILE},
-                  {keyfile,?KEYFILE},
-                  {server_name_indication,false},
-                  {depth,0},
-                  {crl_check,false},
-                  {ip, ParsedInterface},
-                  {port, Port},
-                  {verify, verify_peer},
-                  {verify_fun, {fun validate_function/3,binary_to_list(CACertBin)}},
-                  {fail_if_no_peer_cert,true},
-                  {reuse_sessions, false},
-                  {honor_cipher_order, true},
-                  {versions,['tlsv1.2']},
-                  {ciphers,
+      Dispatch = cowboy_router:compile(
                    [
-                    "ECDHE-ECDSA-AES256-SHA384",
-                    "ECDHE-RSA-AES256-SHA384",
-                    "ECDH-ECDSA-AES256-SHA384",
-                    "ECDH-RSA-AES256-SHA384",
-                    "DHE-RSA-AES256-SHA256",
-                    "DHE-DSS-AES256-SHA256",
-                    %% "AES256-SHA256",
-                    "ECDHE-ECDSA-AES128-SHA256",
-                    "ECDHE-RSA-AES128-SHA256",
-                    "ECDH-ECDSA-AES128-SHA256",
-                    "ECDH-RSA-AES128-SHA256",
-                    "DHE-RSA-AES128-SHA256",
-                    "DHE-DSS-AES128-SHA256"
-                    %% "AES128-SHA256",
-                    %% "ECDHE-ECDSA-AES256-SHA",
-                    %% "ECDHE-RSA-AES256-SHA",
-                    %% "DHE-RSA-AES256-SHA",
-                    %% "DHE-DSS-AES256-SHA",
-                    %% "ECDH-ECDSA-AES256-SHA",
-                    %% "ECDH-RSA-AES256-SHA",
-                    %% "AES256-SHA",
-                    %% "ECDHE-ECDSA-DES-CBC3-SHA",
-                    %% "ECDHE-RSA-DES-CBC3-SHA",
-                    %% "EDH-RSA-DES-CBC3-SHA",
-                    %% "EDH-DSS-DES-CBC3-SHA",
-                    %% "ECDH-ECDSA-DES-CBC3-SHA",
-                    %% "ECDH-RSA-DES-CBC3-SHA",
-                    %% "ECDHE-ECDSA-AES128-SHA",
-                    %% "ECDHE-RSA-AES128-SHA",
-                    %% "DHE-RSA-AES128-SHA",
-                    %% "DHE-DSS-AES128-SHA",
-                    %% "ECDH-ECDSA-AES128-SHA",
-                    %% "ECDH-RSA-AES128-SHA",
-                    %% "AES128-SHA"
+                    {'_',
+                     [
+                      {<<"/doc/[:action]">>, cinched_crypto_field_rest_handler, []},
+                      {<<"/blob/[:action]">>, cinched_crypto_blob_rest_handler, []},
+                      {<<"/key/data-key">>, cinched_data_key_rest_handler, []}
+                     ]
+                    }
                    ]
+                  ),
+      CBOptions = [{env, [{dispatch, Dispatch}]}],
+      RanchOptions = [
+                      {cacertfile,?CACERTFILE},
+                      {certfile,?CERTFILE},
+                      {keyfile,?KEYFILE},
+                      {server_name_indication,false},
+                      {depth,0},
+                      {crl_check,false},
+                      {ip, ParsedInterface},
+                      {port, Port},
+                      {verify, verify_peer},
+                      {verify_fun, {fun validate_function/3,binary_to_list(CACertBin)}},
+                      {fail_if_no_peer_cert,true},
+                      {reuse_sessions, false},
+                      {honor_cipher_order, true},
+                      {versions,['tlsv1.2']},
+                      {ciphers,
+                       [
+                        "ECDHE-ECDSA-AES256-SHA384",
+                        "ECDHE-RSA-AES256-SHA384",
+                        "ECDH-ECDSA-AES256-SHA384",
+                        "ECDH-RSA-AES256-SHA384",
+                        "DHE-RSA-AES256-SHA256",
+                        "DHE-DSS-AES256-SHA256",
+                        %% "AES256-SHA256",
+                        "ECDHE-ECDSA-AES128-SHA256",
+                        "ECDHE-RSA-AES128-SHA256",
+                        "ECDH-ECDSA-AES128-SHA256",
+                        "ECDH-RSA-AES128-SHA256",
+                        "DHE-RSA-AES128-SHA256",
+                        "DHE-DSS-AES128-SHA256"
+                        %% "AES128-SHA256",
+                        %% "ECDHE-ECDSA-AES256-SHA",
+                        %% "ECDHE-RSA-AES256-SHA",
+                        %% "DHE-RSA-AES256-SHA",
+                        %% "DHE-DSS-AES256-SHA",
+                        %% "ECDH-ECDSA-AES256-SHA",
+                        %% "ECDH-RSA-AES256-SHA",
+                        %% "AES256-SHA",
+                        %% "ECDHE-ECDSA-DES-CBC3-SHA",
+                        %% "ECDHE-RSA-DES-CBC3-SHA",
+                        %% "EDH-RSA-DES-CBC3-SHA",
+                        %% "EDH-DSS-DES-CBC3-SHA",
+                        %% "ECDH-ECDSA-DES-CBC3-SHA",
+                        %% "ECDH-RSA-DES-CBC3-SHA",
+                        %% "ECDHE-ECDSA-AES128-SHA",
+                        %% "ECDHE-RSA-AES128-SHA",
+                        %% "DHE-RSA-AES128-SHA",
+                        %% "DHE-DSS-AES128-SHA",
+                        %% "ECDH-ECDSA-AES128-SHA",
+                        %% "ECDH-RSA-AES128-SHA",
+                        %% "AES128-SHA"
+                       ]
+                      }
+                     ],
+      {ok, _} = supervisor:start_child(
+                  cinched_sup,
+                  {
+                    cinched_cb_sup,
+                    {
+                      cowboy,
+                      start_https,
+                      [https, HTTPAcceptors, RanchOptions, CBOptions]
+                    },
+                    permanent,
+                    brutal_kill,
+                    supervisor,
+                    [cowboy]
                   }
-                 ],
-  {ok, _} = supervisor:start_child(
-              cinched_sup,
-              {
-                cinched_cb_sup,
-                {
-                  cowboy,
-                  start_https,
-                  [https, HTTPAcceptors, RanchOptions, CBOptions]
-                },
-                permanent,
-                brutal_kill,
-                supervisor,
-                [cowboy]
-              }
-             ),
+                 );
+    true ->
+      ok
+  end,
   ok.
 
 %% @doc Register exometer metrics. Should move this?
 -spec register_metrics() -> 'ok'.
 register_metrics() ->
 
-  exometer:new([api,blob,encrypt,error],counter),
-  exometer:new([api,blob,decrypt,error],counter),
-  exometer:new([api,blob,encrypt,ok],counter),
-  exometer:new([api,blob,decrypt,ok],counter),
+  exometer:re_register([api,blob,encrypt,error],counter,[]),
+  exometer:re_register([api,blob,decrypt,error],counter,[]),
+  exometer:re_register([api,blob,encrypt,ok],counter,[]),
+  exometer:re_register([api,blob,decrypt,ok],counter,[]),
 
-  exometer:new([api,field,encrypt,ok],counter),
-  exometer:new([api,field,decrypt,ok],counter),
-  exometer:new([api,field,encrypt,error],counter),
-  exometer:new([api,field,decrypt,error],counter),
+  exometer:re_register([api,field,encrypt,ok],counter,[]),
+  exometer:re_register([api,field,decrypt,ok],counter,[]),
+  exometer:re_register([api,field,encrypt,error],counter,[]),
+  exometer:re_register([api,field,decrypt,error],counter,[]),
 
-  exometer:new([api,data_key,ok],counter),
-  exometer:new([api,data_key,error],counter),
+  exometer:re_register([api,data_key,ok],counter,[]),
+  exometer:re_register([api,data_key,error],counter,[]),
 
-  exometer:new([crypto_worker,encrypt,error],counter),
-  exometer:new([crypto_worker,encrypt,ok],counter),
-  exometer:new([crypto_worker,decrypt,error],counter),
-  exometer:new([crypto_worker,decrypt,ok],counter),
-  exometer:new([crypto_worker,load_key,ok],counter),
-  exometer:new([crypto_worker,load_key,error],counter),
+  exometer:re_register([crypto_worker,encrypt,error],counter,[]),
+  exometer:re_register([crypto_worker,encrypt,ok],counter,[]),
+  exometer:re_register([crypto_worker,decrypt,error],counter,[]),
+  exometer:re_register([crypto_worker,decrypt,ok],counter,[]),
+  exometer:re_register([crypto_worker,load_key,ok],counter,[]),
+  exometer:re_register([crypto_worker,load_key,error],counter,[]),
 
-  exometer:new([crypto_worker,encrypt,time],histogram),
-  exometer:new([crypto_worker,decrypt,time],histogram),
+  exometer:re_register([crypto_worker,encrypt,time],histogram,[]),
+  exometer:re_register([crypto_worker,decrypt,time],histogram,[]),
 
-  exometer:new([crypto_worker,data_key,time], histogram),
+  exometer:re_register([crypto_worker,data_key,time], histogram,[]),
 
-  exometer:new([keystore,get,ok],counter),
-  exometer:new([keystore,get,not_found],counter),
-  exometer:new([keystore,get,error],counter),
-  exometer:new([keystore,put,ok],counter),
-  exometer:new([keystore,put,error],counter),
+  exometer:re_register([keystore,get,ok],counter,[]),
+  exometer:re_register([keystore,get,not_found],counter,[]),
+  exometer:re_register([keystore,get,error],counter,[]),
+  exometer:re_register([keystore,put,ok],counter,[]),
+  exometer:re_register([keystore,put,error],counter,[]),
 
-  exometer:new([cache,ocsp_cache,put],counter),
-  exometer:new([cache,ocsp_cache,hit],counter),
-  exometer:new([cache,ocsp_cache,miss],counter),
-  exometer:new([cache,key_cache,put],counter),
-  exometer:new([cache,key_cache,hit],counter),
-  exometer:new([cache,key_cache,miss],counter),
+  exometer:re_register([cache,ocsp_cache,put],counter,[]),
+  exometer:re_register([cache,ocsp_cache,hit],counter,[]),
+  exometer:re_register([cache,ocsp_cache,miss],counter,[]),
+  exometer:re_register([cache,key_cache,put],counter,[]),
+  exometer:re_register([cache,key_cache,hit],counter,[]),
+  exometer:re_register([cache,key_cache,miss],counter,[]),
 
-  exometer:new([ocsp,lookup,time], histogram),
-  exometer:new([ocsp,check,good],counter),
-  exometer:new([ocsp,check,revoked],counter),
-  exometer:new([ocsp,check,error],counter),
-  exometer:new([ocsp,check,timeout],counter),
+  exometer:re_register([ocsp,lookup,time], histogram,[]),
+  exometer:re_register([ocsp,check,good],counter,[]),
+  exometer:re_register([ocsp,check,revoked],counter,[]),
+  exometer:re_register([ocsp,check,error],counter,[]),
+  exometer:re_register([ocsp,check,timeout],counter,[]),
 
-  exometer:new(
+  exometer:re_register(
     [erlang,system_info],
     {
       function,
@@ -289,9 +319,9 @@ register_metrics() ->
        process_count,
        thread_pool_size
       ]
-    }
+    },[]
    ),
-  exometer:new(
+  exometer:re_register(
     [vm,erlang],
     {
       function,
@@ -309,9 +339,9 @@ register_metrics() ->
        binary,
        ets
       ]
-    }
+    },[]
    ),
-  exometer:new(
+  exometer:re_register(
     [cowboy],
     {
       function,
@@ -320,65 +350,75 @@ register_metrics() ->
       ['$dp'],
       value,
       [active_connections]
-    }
+    },[]
    ),
   ok.
 
 %% @doc Register the memory caches (master keys, OCSP responses)
 -spec register_cache() -> 'ok'.
 register_cache() ->
-  {ok, CacheSize} = application:get_env(cinched, key_cache_size),
-  {ok, CacheTTL} = application:get_env(cinched, key_cache_ttl),
-  {ok, CacheSegments} = application:get_env(cinched, key_cache_segments),
   StatsFun = fun({Name,Metric,Operation}) ->
                  exometer:update([Name,Metric,Operation],1)
              end,
-  {ok, _} = supervisor:start_child(
-              cinched_sup,
-              {
-                key_cache_sup,
-                {
-                  cache,
-                  start_link,
-                  [key_cache,[
-                              {n, CacheSegments},
-                              {ttl, CacheTTL},
-                              {memory, CacheSize},
-                              {stats, StatsFun},
-                              {policy,lru}
-                             ]]
-                },
-                permanent,
-                brutal_kill,
-                worker,
-                [cache]
-              }
-             ),
-  {ok, OCSPCacheSize} = application:get_env(cinched, ocsp_cache_size),
-  {ok, OCSPCacheTTL} = application:get_env(cinched, ocsp_cache_ttl),
-  {ok, OCSPCacheSegments} = application:get_env(cinched, ocsp_cache_segments),
-  {ok, _} = supervisor:start_child(
-              cinched_sup,
-              {
-                ocsp_cache_sup,
-                {
-                  cache,
-                  start_link,
-                  [ocsp_cache,[
-                               {n, OCSPCacheSegments},
-                               {ttl, OCSPCacheTTL},
-                               {memory, OCSPCacheSize},
-                               {stats, StatsFun},
-                               {policy,lru}
-                              ]
-                  ]
-                },
-                permanent,
-                brutal_kill,
-                worker,
-                [cache]
-              }
-             ),
+  case is_pid(whereis(key_cache_sup)) of
+    false ->
+      {ok, CacheSize} = application:get_env(cinched, key_cache_size),
+      {ok, CacheTTL} = application:get_env(cinched, key_cache_ttl),
+      {ok, CacheSegments} = application:get_env(cinched, key_cache_segments),
+      {ok, _} = supervisor:start_child(
+                  cinched_sup,
+                  {
+                    key_cache_sup,
+                    {
+                      cache,
+                      start_link,
+                      [key_cache,[
+                                  {n, CacheSegments},
+                                  {ttl, CacheTTL},
+                                  {memory, CacheSize},
+                                  {stats, StatsFun},
+                                  {policy,lru}
+                                 ]]
+                    },
+                    permanent,
+                    brutal_kill,
+                    worker,
+                    [cache]
+                  }
+                 );
+    true ->
+      ok
+  end,
+  case is_pid(whereis(ocsp_cache_sup)) of
+    false ->
+      {ok, OCSPCacheSize} = application:get_env(cinched, ocsp_cache_size),
+      {ok, OCSPCacheTTL} = application:get_env(cinched, ocsp_cache_ttl),
+      {ok, OCSPCacheSegments} = application:get_env(cinched, ocsp_cache_segments),
+      {ok, _} = supervisor:start_child(
+                  cinched_sup,
+                  {
+                    ocsp_cache_sup,
+                    {
+                      cache,
+                      start_link,
+                      [ocsp_cache,[
+                                   {n, OCSPCacheSegments},
+                                   {ttl, OCSPCacheTTL},
+                                   {memory, OCSPCacheSize},
+                                   {stats, StatsFun},
+                                   {policy,lru}
+                                  ]
+                      ]
+                    },
+                    permanent,
+                    brutal_kill,
+                    worker,
+                    [cache]
+                  }
+                 );
+    true ->
+      ok
+  end,
   ok.
 
 %% @doc This is a TLS validation function used by cowboy to validate
