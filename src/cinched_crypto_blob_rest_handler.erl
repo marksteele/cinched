@@ -25,27 +25,16 @@
 
 %% Callbacks for REST API
 -export([init/3, known_methods/2,
-         allowed_methods/2,rest_init/2,
+         allowed_methods/2,
          content_types_provided/2, is_authorized/2,
          content_types_accepted/2]).
 
 %% Custom functions
 -export([encrypt/2, decrypt/2]).
 
--record(state,{action}).
-
 -spec init(_,_,_) -> {'upgrade','protocol','cowboy_rest'}.
 init(_Transport, _Req, _Args) ->
   {upgrade, protocol, cowboy_rest}.
-
--spec rest_init(_,_) -> {ok,any(),any()} | {halt,any(),undefined}.
-rest_init(Req, _Opts) ->
-  case cowboy_req:binding(action, Req) of
-    {Action, Req} ->
-      {ok, Req, #state{action=Action}};
-    {undefined, Req}  ->
-      {halt,Req,undefined}
-  end.
 
 -spec known_methods(_,_) -> {[<<_:32>>,...],_,_}.
 known_methods(Req, Ctx) ->
@@ -59,31 +48,33 @@ allowed_methods(Req, Ctx) ->
 is_authorized(Req,Ctx) ->
   {true, Req, Ctx}.
 
--spec content_types_provided(_,_) -> {[{{_,_,_},'encrypt'},...],_,_}.
-content_types_provided(Req, Ctx=#state{action=Action}) ->
-  case Action of
-    <<"encrypt">> ->
+%% TODO: Save this state (the action) for the content types provided function
+content_types_accepted(Req, Ctx) ->
+  case cowboy_req:binding(action, Req) of
+    {undefined,Req} ->
+      {halt,Req,{}};
+    {<<"encrypt">>,Req} ->
       {[{{<<"application">>, <<"octet-stream">>, '*'}, encrypt}], Req, Ctx};
-    <<"decrypt">> ->
+    {<<"decrypt">>,Req} ->
       {[{{<<"application">>, <<"octet-stream">>, '*'}, decrypt}], Req, Ctx}
   end.
 
--spec content_types_accepted(_,_) -> {[{{_,_,_},'encrypt'},...],_,_}.
-content_types_accepted(Req, Ctx=#state{action=Action}) ->
-  case Action of
-    <<"encrypt">> ->
+content_types_provided(Req, Ctx) ->
+  case cowboy_req:binding(action, Req) of
+    {undefined,Req} ->
+      {halt,Req,{}};
+    {<<"encrypt">>,Req} ->
       {[{{<<"application">>, <<"octet-stream">>, '*'}, encrypt}], Req, Ctx};
-    <<"decrypt">> ->
+    {<<"decrypt">>,Req} ->
       {[{{<<"application">>, <<"octet-stream">>, '*'}, decrypt}], Req, Ctx}
   end.
 
--spec encrypt(_,_) -> {'true',_,{}}.
-encrypt(Req, _Ctx) ->
-  {ok, Body, _Req1} = cowboy_req:body(Req,[]),
-  {ok, DataKey} = case cowboy_req:header(<<"x-cinched-data-key">>, Req) of
-                    {undefined,_} ->
+encrypt(Req0, _Ctx) ->
+  {ok, Body, Req1} = cowboy_req:body(Req0,[]),
+  {ok, DataKey} = case cowboy_req:header(<<"x-cinched-data-key">>, Req1) of
+                    {undefined,Req2} ->
                       cinched:generate_data_key();
-                    {KeyHeader,_} ->
+                    {KeyHeader,Req2} ->
                       {ok, binary_to_term(base64:decode(KeyHeader))}
                   end,
   {Time, Value} = timer:tc(
@@ -96,16 +87,14 @@ encrypt(Req, _Ctx) ->
                          )
                     end
                    ),
-
   %% Gather logging data
-  {Peer,Port0} = cowboy_req:get(peer,Req),
+  {Peer,Port0} = cowboy_req:get(peer,Req2),
   Port = integer_to_binary(Port0),
   PeerIP = list_to_binary(inet_parse:ntoa(Peer)),
-  {ok,{Serial,PeerCN}} = cinched:get_cert_info_from_socket(cowboy_req:get(socket,Req)),
-  {QueryString,_} = cowboy_req:qs(Req),
-  {UserAgent,_} = cowboy_req:header(<<"user-agent">>,Req),
-  {Metadata,_} = cowboy_req:header(<<"x-cinched-metadata">>,Req),
-
+  {ok,{Serial,PeerCN}} = cinched:get_cert_info_from_socket(cowboy_req:get(socket,Req2)),
+  {QueryString,Req3} = cowboy_req:qs(Req2),
+  {UserAgent,Req4} = cowboy_req:header(<<"user-agent">>,Req3),
+  {Metadata,Req5} = cowboy_req:header(<<"x-cinched-metadata">>,Req4),
   exometer:update([crypto_worker,encrypt,time],Time),
   case Value of
     {ok, Response} ->
@@ -120,18 +109,18 @@ encrypt(Req, _Ctx) ->
                        {peer_cert_cn,PeerCN},
                        {peer_cert_serial,Serial}
                       ]),
-      Req0 = cowboy_req:set_resp_header(
+      Req6 = cowboy_req:set_resp_header(
                <<"x-cinched-data-key">>,
                base64:encode(term_to_binary(DataKey)),
-               Req
+               Req5
               ),
-      Req1 = cowboy_req:set_resp_header(
+      Req7 = cowboy_req:set_resp_header(
                <<"x-cinched-crypto-period">>,
                integer_to_binary(DataKey#cinched_key.crypto_period),
-               Req0
+               Req6
               ),
       exometer:update([api,blob,encrypt,ok],1),
-      {true, cowboy_req:set_resp_body(Response, Req1), {}};
+      {true, cowboy_req:set_resp_body(Response, Req7), {}};
     {error,_Err} ->
       cinched_log:log([
                        {op,blob_encrypt},
@@ -145,16 +134,16 @@ encrypt(Req, _Ctx) ->
                        {peer_cert_serial,Serial}
                       ]),
       exometer:update([api,blob,encrypt,error],1),
-      {false, Req, {}}
+      {false, Req5, {}}
   end.
 
 -spec decrypt(_,_) -> {'true',_,{}}.
-decrypt(Req, _Ctx) ->
-  {ok, Body, _Req1} = cowboy_req:body(Req,[]),
-  {ok, DataKey} = case cowboy_req:header(<<"x-cinched-data-key">>, Req) of
-                    {undefined,_} ->
+decrypt(Req0, _Ctx) ->
+  {ok, Body, Req1} = cowboy_req:body(Req0,[]),
+  {ok, DataKey} = case cowboy_req:header(<<"x-cinched-data-key">>, Req1) of
+                    {undefined,Req2} ->
                       throw("Error, missing data key");
-                    {KeyHeader,_} ->
+                    {KeyHeader,Req2} ->
                       {ok, binary_to_term(base64:decode(KeyHeader))}
                   end,
   {Time, Value} = timer:tc(
@@ -170,13 +159,13 @@ decrypt(Req, _Ctx) ->
   exometer:update([crypto_worker,decrypt,time],Time),
 
   %% Gather logging data
-  {Peer,Port0} = cowboy_req:get(peer,Req),
+  {Peer,Port0} = cowboy_req:get(peer,Req2),
   Port = integer_to_binary(Port0),
   PeerIP = list_to_binary(inet_parse:ntoa(Peer)),
-  {ok,{Serial,PeerCN}} = cinched:get_cert_info_from_socket(cowboy_req:get(socket,Req)),
-  {QueryString,_} = cowboy_req:qs(Req),
-  {UserAgent,_} = cowboy_req:header(<<"user-agent">>,Req),
-  {Metadata,_} = cowboy_req:header(<<"x-cinched-metadata">>,Req),
+  {ok,{Serial,PeerCN}} = cinched:get_cert_info_from_socket(cowboy_req:get(socket,Req2)),
+  {QueryString,Req3} = cowboy_req:qs(Req2),
+  {UserAgent,Req4} = cowboy_req:header(<<"user-agent">>,Req3),
+  {Metadata,Req5} = cowboy_req:header(<<"x-cinched-metadata">>,Req4),
 
   case Value of
     {ok, Response} ->
@@ -192,7 +181,7 @@ decrypt(Req, _Ctx) ->
                        {peer_cert_serial,Serial}
                       ]),
       exometer:update([api,blob,decrypt,ok],1),
-      {true,cowboy_req:set_resp_body(Response,Req), {}};
+      {true,cowboy_req:set_resp_body(Response,Req5), {}};
     {error,_} ->
       cinched_log:log([
                        {op,blob_decrypt},
@@ -207,5 +196,5 @@ decrypt(Req, _Ctx) ->
 
                       ]),
       exometer:update([api,blob,decrypt,error],1),
-      {false, Req, {}}
+      {halt, Req5, {}}
   end.

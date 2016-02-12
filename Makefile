@@ -8,6 +8,10 @@ compile:
 	rebar compile
 	cd policy && make
 
+lock:
+	rm -rf deps/*
+	rebar get-deps compile; rebar lock-deps
+
 release:
 	bin/release.es
 

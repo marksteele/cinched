@@ -144,56 +144,64 @@ check_cluster(timeout, S=#state{
   {next_state, create_missing_ensembles, S, 0}.
 
 create_missing_ensembles(timeout, S=#state{ring=Ring}) ->
-  {ok, KnownEnsembles} = riak_ensemble_manager:known_ensembles(),
-  CurrentEnsembles = orddict:fetch_keys(KnownEnsembles),
-  ExpectedEnsembles = proplists:get_keys(Ring),
-  %% +1 for root ensemble...
-  case (length(ExpectedEnsembles) +1) =/= length(CurrentEnsembles) of
-    true ->
-      MissingEnsembles = ExpectedEnsembles -- CurrentEnsembles,
-      Created = lists:foldl(
-                  fun(X,Acc) ->
-                      Peers = proplists:get_value(X,Ring),
-                      case catch riak_ensemble_manager:create_ensemble(
-                                   X,
-                                   undefined,
-                                   [{X,Node} || Node <- Peers],
-                                   cinched_ensemble_backend,
-                                   []
-                                  ) of
-                        ok ->
-                          Acc ++ [X];
-                        _ ->
-                          Acc
-                      end
-                  end,
-                  [],
-                  MissingEnsembles),
-      case length(Created) =:= length(MissingEnsembles) of
+  case riak_ensemble_manager:known_ensembles() of
+    {ok, KnownEnsembles} ->
+      CurrentEnsembles = orddict:fetch_keys(KnownEnsembles),
+      ExpectedEnsembles = proplists:get_keys(Ring),
+      %% +1 for root ensemble...
+      case (length(ExpectedEnsembles) +1) =/= length(CurrentEnsembles) of
         true ->
-          gen_fsm:send_event(cinched_startup_fsm, ensemble_up);
-        _ ->
-          ok
-      end;
-    false ->
-      gen_fsm:send_event(cinched_startup_fsm, ensemble_up)
-  end,
-  {next_state,check_ensemble_enabled,S,10000}.
+          MissingEnsembles = ExpectedEnsembles -- CurrentEnsembles,
+          Created = lists:foldl(
+                      fun(X,Acc) ->
+                          Peers = proplists:get_value(X,Ring),
+                          case catch riak_ensemble_manager:create_ensemble(
+                                       X,
+                                       undefined,
+                                       [{X,Node} || Node <- Peers],
+                                       cinched_ensemble_backend,
+                                       []
+                                      ) of
+                            ok ->
+                              Acc ++ [X];
+                            _ ->
+                              Acc
+                          end
+                      end,
+                      [],
+                      MissingEnsembles),
+          case length(Created) =:= length(MissingEnsembles) of
+            true ->
+              gen_fsm:send_event(cinched_startup_fsm, ensemble_up);
+            _ ->
+              ok
+          end;
+        false ->
+          gen_fsm:send_event(cinched_startup_fsm, ensemble_up)
+      end,
+      {next_state,check_ensemble_enabled,S,10000};
+    _ ->
+      {next_state,create_missing_ensembles,S,10000}
+  end.
 
 
 -spec wait_for_ensembles(timeout,tuple()) ->
                             {stop,normal,tuple()} |
                             {next_state,wait_for_ensembles,tuple(),1000}.
 wait_for_ensembles(timeout, S=#state{ring=Ring}) ->
-  {ok, KnownEnsembles} = riak_ensemble_manager:known_ensembles(),
-  CurrentEnsembles = orddict:fetch_keys(KnownEnsembles),
-  MissingEnsembles = proplists:get_keys(Ring) -- CurrentEnsembles,
-  case MissingEnsembles of
-    [] ->
-      gen_fsm:send_event(cinched_startup_fsm, ensemble_up),
-      {next_state, check_ensemble_enabled,S,10000};
+  case riak_ensemble_manager:known_ensembles() of
+  {ok, KnownEnsembles} ->
+      CurrentEnsembles = orddict:fetch_keys(KnownEnsembles),
+      MissingEnsembles = proplists:get_keys(Ring) -- CurrentEnsembles,
+      case MissingEnsembles of
+        [] ->
+          gen_fsm:send_event(cinched_startup_fsm, ensemble_up),
+          {next_state, check_ensemble_enabled,S,10000};
+        _ ->
+          {next_state, wait_for_ensembles, S, 1000}
+      end;
     _ ->
-      {next_state, wait_for_ensembles, S, 1000}
+      {next_state,wait_for_ensembles,S,1000}
   end.
 
 -spec handle_event(_,atom(),tuple()) -> {next_state,atom(),tuple()}.

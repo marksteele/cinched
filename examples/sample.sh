@@ -8,7 +8,7 @@ echo
 
 echo "Input is foo and bar"
 PAYLOAD="{\"foo\":\"bar\",\"bar\":\"baz\"}"
-
+echo "PAYLOAD: $PAYLOAD"
 DK=`curl -s \
 -X POST --cert ../fixtures/star.control-alt-del.org.crt --key ../fixtures/star.control-alt-del.org.key \
 --cacert ../fixtures/cacert.pem --tlsv1.2  \
@@ -25,7 +25,8 @@ RAW=`curl -s \
   --cacert ../fixtures/cacert.pem \
   --tlsv1.2 \
   https://dev1.control-alt-del.org:55443/doc/encrypt?fields=\(bar\)`
-
+echo "RAW: $RAW"
+exit
 FOO=`echo $RAW | jq -r ".foo"`
 BAR=`echo $RAW | jq -r ".bar"`
 

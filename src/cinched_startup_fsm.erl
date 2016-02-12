@@ -97,6 +97,7 @@ starting_services(timeout,S) ->
   ok = start_workers(),
   ok = start_audit_log(),
   ok = start_cowboy(),
+  ok = start_stats_http(),
   {next_state, started, S}.
 
 started(_,{}) ->
@@ -160,6 +161,50 @@ start_audit_log() ->
   end,
   ok.
 
+start_stats_http() ->
+  case is_pid(whereis(cinched_cb_stats_sup)) of
+    false ->
+      {ok, Interface} = application:get_env(cinched, ip),
+      {ok, Port} = application:get_env(cinched, stats_http_port),
+      {ok, ParsedInterface} = inet:parse_address(Interface),
+
+      Dispatch = cowboy_router:compile(
+                   [
+                    {'_',
+                     [
+                      {<<"/stats">>, cinched_stats_rest_handler, []}
+                     ]
+                    }
+                   ]
+                  ),
+      CBOptions = [
+                   {env, [{dispatch, Dispatch}]},
+                   {max_keepalive,100}
+                  ],
+      RanchOptions = [
+                      {ip, ParsedInterface},
+                      {port, Port}
+                     ],
+      {ok, _} = supervisor:start_child(
+                  cinched_sup,
+                  {
+                    cinched_cb_stats_sup,
+                    {
+                      cowboy,
+                      start_http,
+                      [http, 50, RanchOptions, CBOptions]
+                    },
+                    permanent,
+                    brutal_kill,
+                    supervisor,
+                    [cowboy]
+                  }
+                 );
+    true ->
+      ok
+  end,
+  ok.
+
 %% @doc Starts the webserver
 -spec start_cowboy() -> ok.
 start_cowboy() ->
@@ -183,20 +228,22 @@ start_cowboy() ->
                     }
                    ]
                   ),
-      CBOptions = [{env, [{dispatch, Dispatch}]}],
+      CBOptions = [{env, [{dispatch, Dispatch}]},{max_keepalive,100}],
       RanchOptions = [
+                      {nodelay,true},
                       {cacertfile,?CACERTFILE},
                       {certfile,?CERTFILE},
                       {keyfile,?KEYFILE},
                       {server_name_indication,false},
                       {depth,0},
-                      {crl_check,false},
+                      {crl_check,peer},
                       {ip, ParsedInterface},
                       {port, Port},
                       {verify, verify_peer},
                       {verify_fun, {fun validate_function/3,binary_to_list(CACertBin)}},
                       {fail_if_no_peer_cert,true},
-                      {reuse_sessions, false},
+                      {reuse_sessions, true},
+                      {secure_renegotiate,true},
                       {honor_cipher_order, true},
                       {versions,['tlsv1.2']},
                       {ciphers,
