@@ -9,7 +9,7 @@ if [ -z "${2}" ]; then
 	exit
 fi
 
-perl -pe "s/{rel, \"cinched\", \"[^\"]+\",/{rel, \"cinched\", \"${1}\",/" rel/reltool.config
+perl -pe "s/{rel, \"cinched\", \"[^\"]+\",/{rel, \"cinched\", \"${1}\",/" -i rel/reltool.config
 
 git add -A .
 git commit -m "${2}"
