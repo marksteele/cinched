@@ -54,7 +54,7 @@ start_link() ->
 init([]) ->
   Ring = cinched:ring(),
   {ok, Nodes} = application:get_env(cinched,nodes),
-  {ok, check_ensemble_enabled, #state{ring=Ring,nodes=Nodes}, 0}.
+  {ok, check_ensemble_enabled, #state{ring=Ring,nodes=lists:sort(Nodes)}, 0}.
 
 check_ensemble_enabled(timeout,S) ->
   case riak_ensemble_manager:enabled() of
@@ -72,10 +72,13 @@ check_ensemble_enabled(timeout,S) ->
   end.
 
 wait_cluster_members(timeout, S=#state{nodes=Nodes}) ->
-  case lists:sort(nodes()) =:= lists:sort(Nodes) of
+  OnlineNodes = lists:sort(nodes()),
+  Peers = Nodes -- [node()],
+  case OnlineNodes =:= Peers of
     true ->
       {next_state, check_cluster_status, S, 0};
     false ->
+      [net_adm:ping(X) || X <- Peers -- OnlineNodes],
       {next_state, wait_cluster_members,S,1000}
   end.
 

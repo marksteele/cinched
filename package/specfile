@@ -59,6 +59,7 @@ export QA_RPATHS=3
 # Pre-install script
 systemctl enable haveged
 systemctl start haveged
+chattr -R -i /usr/sbin/cinched /usr/lib64/cinched /etc/bash_completion.d/cinched_bash_completions
 if ! getent group cinched >/dev/null 2>&1; then
    groupadd -r cinched
 fi
@@ -75,6 +76,8 @@ fi
 
 %post
 # Post Installation Script
+semodule -i /usr/lib64/cinched/policy/*.pp
+restorecon -Rv /var/{log,lib}/cinched /usr/sbin/cinched /etc/bash_completion.d/cinched_bash_completions /usr/lib64/cinched /etc/cinched
 
 %preun
 # Pre-uninstall script
