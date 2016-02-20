@@ -29,8 +29,7 @@
          start_link/1,
          encrypt/3,
          decrypt/3,
-         encrypt/2,
-         decrypt/2
+         encrypt/2
         ]).
 
 -export([init/1,
@@ -65,7 +64,7 @@ handle_call(data_key, _From, S=#state{sk=SK,ring_size=RingSize}) ->
   try
     CryptoPeriod = generate_crypto_period(),
     {ok, MasterKey} = load_key(CryptoPeriod,SK,RingSize),
-    {ok, EncryptedDataKey} = nacl:secretbox(nacl:secretbox_key(), MasterKey),
+    {ok, EncryptedDataKey} = cinched_crypto:encrypt(MasterKey,cinched_crypto:key()),
     exometer:update([crypto_worker,data_key,ok],1),
     {reply, {ok,
              #cinched_key{
@@ -148,8 +147,8 @@ load_key(CryptoPeriod,SK,RingSize) ->
 
 -spec generate_master_key({non_neg_integer(),non_neg_integer()},binary()) -> {ok,term()} | error.
 generate_master_key({CryptoPeriod,Ensemble}, SK) ->
-  MasterKey = nacl:secretbox_key(),
-  {ok, EncryptedMasterKey} = nacl:secretbox(MasterKey, SK),
+  MasterKey = cinched_crypto:key(),
+  {ok, EncryptedMasterKey} = cinched_crypto:encrypt(SK,MasterKey),
   KeyObj = #cinched_key{
          key=EncryptedMasterKey,
          crypto_period=CryptoPeriod,
@@ -168,7 +167,7 @@ load_or_generate_master_key({CryptoPeriod,Ensemble}, SK) when is_integer(CryptoP
     {error, not_found} ->
       generate_master_key({CryptoPeriod,Ensemble}, SK);
     {ok, EncryptedMasterKey} ->
-      nacl:secretbox_open(EncryptedMasterKey#cinched_key.key,SK);
+      cinched_crypto:decrypt(SK,EncryptedMasterKey#cinched_key.key);
     {error, _} ->
       error
   end.
@@ -207,7 +206,7 @@ encrypt(Payload, Key, Fields) ->
                 undefined ->
                   throw("Undefined field specified");
                 Value ->
-                  {ok, Encrypted} = nacl:secretbox(term_to_binary(Value),Key),
+                  {ok, Encrypted} = cinched_crypto:encrypt(Key,term_to_binary(Value)),
                   ej:set(X,Acc,base64:encode(term_to_binary(Encrypted)))
               end
           end,
@@ -217,7 +216,7 @@ encrypt(Payload, Key, Fields) ->
 
 -spec encrypt(binary(),binary()) -> {ok, binary()}.
 encrypt(Payload, Key) ->
-  case nacl:secretbox(Payload,Key) of
+  case cinched_crypto:encrypt(Key,Payload) of
     {ok, Encrypted} ->
       {ok, term_to_binary(Encrypted)};
     {error, Error} ->
@@ -233,7 +232,7 @@ decrypt(Payload, Key, Fields) ->
                 undefined ->
                   throw("Undefined field specified");
                 Value ->
-                  {ok, Decrypted} = nacl:secretbox_open(binary_to_term(base64:decode(Value)),Key),
+                  {ok, Decrypted} = cinched_crypto:decrypt(Key,binary_to_term(base64:decode(Value))),
                   ej:set(X,Acc,binary_to_term(Decrypted))
               end
           end,
@@ -243,7 +242,7 @@ decrypt(Payload, Key, Fields) ->
 
 -spec decrypt_key(term(), binary()) -> {error,term()} | {ok,term()}.
 decrypt_key(Payload,Key) ->
-  case nacl:secretbox_open(Payload, Key) of
+  case cinched_crypto:decrypt(Key,Payload) of
     {error, Error} ->
       exometer:update([crypto_worker,decrypt,error],1),
       {error, Error};
@@ -251,10 +250,6 @@ decrypt_key(Payload,Key) ->
       exometer:update([crypto_worker,decrypt,ok],1),
       Data
   end.
-
--spec decrypt(binary(),binary()) -> {ok,binary()}.
-decrypt(Payload, Key) ->
-  nacl:secretbox_open(binary_to_term(Payload),Key).
 
 -spec generate_crypto_period() -> non_neg_integer().
 generate_crypto_period() ->

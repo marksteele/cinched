@@ -78,9 +78,9 @@ load_esk(timeout,S=#state{ensemble=Ensemble}) ->
   end.
 
 load_esk(init, _, S=#state{ensemble=Ensemble,threshold=T,num_shards=N}) ->
-  SK = nacl:secretbox_key(),
-  ShardKey = nacl:secretbox_key(),
-  {ok, ESK} = nacl:secretbox(SK, ShardKey),
+  SK = cinched_crypto:key(),
+  ShardKey = cinched_crypto:key(),
+  {ok, ESK} = cinched_crypto:encrypt(ShardKey,SK),
   Shards = [
             base64:encode(term_to_binary(X))
             || X <- shamir:share(ShardKey, T, N)
@@ -142,7 +142,7 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 decrypt_esk(Shards,ESK) ->
   try
     ShardKey = shamir:recover(Shards),
-    {ok, SK} = nacl:secretbox_open(ESK, ShardKey),
+    {ok, SK} = cinched_crypto:decrypt(ShardKey,ESK),
     application:set_env(cinched,sk,SK),
     ok
   catch

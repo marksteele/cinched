@@ -1,5 +1,6 @@
--include_lib("nacl/include/nacl.hrl").
 -include_lib("passwderl/include/passwderl.hrl").
+
+-record(nacl_envelope,{nonce,ciphertext}).
 
 -define(DEFAULT_TIMEOUT, 10000).
 -define(RINGTOP, trunc(math:pow(2,160)-1)).  % SHA-1 space

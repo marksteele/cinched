@@ -29,12 +29,10 @@
          stats/0,
          cowboy_stats/1,
          unix_timestamp/0,
-         generate_hash/1,
          mk_reqid/0,
          ring/0,
          get_ensemble/2,
          wait_for_reqid/2,
-         hash/1,
          ring_increment/1,
          generate_data_key/0,
          backup/0,
@@ -113,23 +111,6 @@ unix_timestamp() ->
   {Mega, Secs, _} = now(),
   Mega*1000000 + Secs.
 
-%% @doc Given a binary input, generate a hash that is appropriate
-%%      to use as a key for encryption. Uses simple stretching
-%%      if the hash function returns a value that's too small.
--spec generate_hash(binary() | nonempty_string()) -> binary().
-generate_hash(Input) when is_list(Input) ->
-  generate_hash(iolist_to_binary(Input));
-generate_hash(Input) when is_binary(Input) ->
-  Size = nacl_nif:secretbox_KEYBYTES(),
-  generate_hash(Input, Size, <<>>).
-
--spec generate_hash(binary(),non_neg_integer(),binary()) -> binary().
-generate_hash(_, Size, Acc) when size(Acc) >= Size->
-  <<Hash:Size/binary, _/binary>> = Acc,
-  Hash;
-generate_hash(Input, Size, Acc) ->
-  More = nacl:hash(<<Acc/binary, Input/binary>>),
-  generate_hash(Input, Size,  <<Acc/binary, More/binary>>).
 
 
 %% @doc Wait for a specific message

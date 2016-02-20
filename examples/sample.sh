@@ -26,7 +26,7 @@ RAW=`curl -s \
   --tlsv1.2 \
   https://dev1.control-alt-del.org:55443/doc/encrypt?fields=\(bar\)`
 echo "RAW: $RAW"
-exit
+
 FOO=`echo $RAW | jq -r ".foo"`
 BAR=`echo $RAW | jq -r ".bar"`
 

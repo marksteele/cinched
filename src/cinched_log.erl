@@ -53,7 +53,7 @@ rotate() ->
 -spec init([]) -> {ok, tuple()}.
 init([]) ->
   {ok, SK} = application:get_env(cinched,sk),
-  CurrentKey = cinched:generate_hash(SK),
+  CurrentKey = cinched_crypto:hash(SK),
   LogPath = filename:join(?PLATFORM_LOG_DIR,"audit"),
   File = filename:join(LogPath,"audit.log"),
   ok = filelib:ensure_dir(File),
@@ -72,21 +72,21 @@ init([]) ->
 handle_call(rotate, _From, S=#state{log=Log, path=Path, hash=Hash}) ->
   File = create_filename(Path),
   ok = disk_log:reopen(Log,File),
-  CurrentKey = cinched:generate_hash(Hash),
+  CurrentKey = cinched_crypto:hash(Hash),
   {reply, ok, S#state{current_key = CurrentKey, current_hash = <<>>}};
 
 handle_call({log, P}, _, S=#state{log=Log, current_key=K,current_hash=H}) ->
   EP = term_to_binary(P,[compressed]),
-  {ok, EEP} = nacl:secretbox(EP,K),
+  {ok, EEP} = cinched_crypto:encrypt(K,EP),
   EEEP = term_to_binary(EEP),
-  Hash = nacl:hash(<<EEEP/binary, H/binary>>),
+  Hash = cinched_crypto:hash(<<EEEP/binary, H/binary>>),
   Record = #cinched_log{
               hash = Hash,
               payload = EEEP,
               timestamp = os:timestamp()
              },
   ok = disk_log:log(Log, Record),
-  NextKey = cinched:generate_hash(K),
+  NextKey = cinched_crypto:hash(K),
   {reply, ok, S#state{current_key = NextKey, current_hash=Hash}}.
 
 -spec handle_cast(sync,tuple()) -> {noreply, tuple()}.

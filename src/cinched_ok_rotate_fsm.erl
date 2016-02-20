@@ -84,10 +84,10 @@ wait_shards({shard,Shard}, _, S=#state{
     true ->
       try
         CurrentOK = shamir:recover(Shards),
-        {ok,SK} = nacl:secretbox_open(ESK,CurrentOK),
+        {ok,SK} = cinched_crypto:decrypt(CurrentOK,ESK),
         %% If we got here, key is recovered and we can generate new one.
-        NewOK = nacl:secretbox_key(),
-        {ok, NewESK} = nacl:secretbox(SK,NewOK),
+        NewOK = cinched_crypto:key(),
+        {ok, NewESK} = cinched_crypto:encrypt(NewOK,SK),
         NewShards = [
                   base64:encode(term_to_binary(X))
                   || X <- shamir:share(NewOK, T, N)

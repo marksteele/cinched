@@ -2,7 +2,7 @@
 
 export ROOTDIR="/usr/lib64/cinched"
 export EMU="beam"
-export BINDIR="/usr/lib64/cinched/erts-6.4/bin"
+export BINDIR="/usr/lib64/cinched/erts-6.4.1.5/bin"
 
 function valid_int()
 {
@@ -82,9 +82,22 @@ if [ "$1" == "start" ]; then
 # some sort of issue with the way cinched is written or Erlang qwerkiness.
 
     NODENAME="cinched@$(cat /etc/cinched/host.config)"
-    CMD="$BINDIR/erl +P 256000 -env ERL_MAX_ETS_TABLES 256000 \
-        -env ERL_CRASH_DUMP /dev/null -env ERL_FULLSWEEP_AFTER 0 \
-        -env ERL_MAX_PORTS 65536 +A 64 +K true +W w -smp auto \
+    CMD="$BINDIR/erl \
+        +P 256000 \
+        -env ERL_MAX_ETS_TABLES 256000 \
+        -env ERL_CRASH_DUMP /dev/null \
+        -env ERL_FULLSWEEP_AFTER 0 \
+        -env ERL_MAX_PORTS 65536 \
+        +A 64 \
+        +K true \
+        +W w \
+        -smp auto \
+        +sbt db \
+        +sbwt very_long \
+        +swt very_low \
+        +Mulmbcs 32767 \
+        +Mumbcgs 1 \
+        +Musmbcs 2047
         +B i \
         -detached \
         -proto_dist inet_tls \
@@ -629,6 +642,14 @@ To do so, control-c to exit this wizard, go compile your kernel, then re-run the
             valid_int $backup_port 1 65536
             if [ $? -ne 0 ]; then
                 unset backup_port
+            fi
+        done
+
+        while [[ -z "$stats_port" ]]; do
+            read -e -i 58080 -p "Port to use for cinched http stats endpoint: " stats_port
+            valid_int $backup_port 1 65536
+            if [ $? -ne 0 ]; then
+                unset stats_port
             fi
         done
 

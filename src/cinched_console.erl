@@ -167,7 +167,7 @@ view_audit_log(User,Log) when
          qdate:set_timezone("GMT"),
          To = self(),
          spawn(fun() ->
-                   ok = cinched_log_viewer:view_log(Log,cinched:generate_hash(SK),To)
+                   ok = cinched_log_viewer:view_log(Log,cinched_crypto:hash(SK),To)
                end),
          receive_log_data()
      end

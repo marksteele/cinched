@@ -34,7 +34,7 @@
                {error, not_found | ensemble_error} |
                {ok, term()}.
 fetch(Key, Ensemble) ->
-  case riak_ensemble_client:kget(node(),Ensemble,cinched:hash(Key),10000) of
+  case riak_ensemble_client:kget(node(),Ensemble,crypto:hash(sha, term_to_binary(Key)),10000) of
     {ok,#obj{value=notfound}} ->
       exometer:update([keystore,get,not_found],1),
       {error, not_found};
@@ -52,7 +52,7 @@ store(Key, Ensemble, Value) ->
   case riak_ensemble_client:kput_once(
          node(),
          Ensemble,
-         cinched:hash(Key),
+         crypto:hash(sha, term_to_binary(Key)),
          term_to_binary(Value),
          10000
         ) of
@@ -70,7 +70,7 @@ overwrite(Key, Ensemble, Value) ->
   case riak_ensemble_client:kover(
          node(),
          Ensemble,
-         cinched:hash(Key),
+         crypto:hash(sha, term_to_binary(Key)),
          term_to_binary(Value),
          10000
         ) of

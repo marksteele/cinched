@@ -101,7 +101,7 @@ process_log(Log,Fun,Cont,Acc) ->
 check_hashes(Terms,Acc) ->
   lists:foldl(
     fun(#cinched_log{payload=P,hash=H},HC) ->
-        H = nacl:hash(<<P/binary, HC/binary>>)
+        H = cinched_crypto:hash(<<P/binary, HC/binary>>)
     end,
     Acc,
     Terms).
@@ -110,14 +110,14 @@ check_hashes(Terms,Acc) ->
 decode_data(Terms,Acc,To) ->
   lists:foldl(
     fun(#cinched_log{payload=P,hash=H,timestamp=T},{K,HC}) ->
-        H = nacl:hash(<<P/binary, HC/binary>>),
-        case nacl:secretbox_open(binary_to_term(P),K) of
+        H = cinched_crypto:hash(<<P/binary, HC/binary>>),
+        case cinched_crypto:decrypt(K,binary_to_term(P)) of
           {error, _} ->
             To ! error;
            {ok, Data} ->
             To ! {ok, {data,Data},{timestamp,T}}
         end,
-        {cinched:generate_hash(K), H}
+        {cinched_crypto:hash(K), H}
     end,
     Acc,
     Terms).

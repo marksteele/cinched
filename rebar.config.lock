@@ -1,9 +1,12 @@
 %% THIS FILE IS GENERATED. DO NOT EDIT IT MANUALLY %%
 
 {sub_dirs,["rel","deps","include"]}.
-{deps,[{rebar_lock_deps_plugin,".*",
-                               {git,"git://github.com/seth/rebar_lock_deps_plugin.git",
-                                    "7a5835029c42b8138325405237ea7e8516a84800"}},
+{deps,[{goldrush,".*",
+                 {git,"git://github.com/DeadZen/goldrush.git",
+                      "71e63212f12c25827e0c1b4198d37d5d018a7fec"}},
+       {lager,".*",
+              {git,"git://github.com/basho/lager.git",
+                   "b6b6cebcb27ccff8acc59ae775acebc2f52e4926"}},
        {proper,".*",
                {git,"https://github.com/manopapad/proper.git",
                     "1b773eeb47cb2c3116d78bdf681505703b762eee"}},
@@ -16,18 +19,12 @@
        {jiffy,".*",
               {git,"git://github.com/davisp/jiffy.git",
                    "6303ff98aaa3fce625038c8b7af2aa8b802f4742"}},
-       {nacl,".*",
-             {git,"git://github.com/marksteele/erlang-nacl.git",
-                  "c756a13182fe15549086c3a42e22dedc0a03c8c7"}},
+       {enacl,".*",
+              {git,"git://github.com/jlouis/enacl.git",
+                   "03f93c4f7d0cb56b5a86b445cb004a3a8de2278b"}},
        {passwderl,".*",
                   {git,"git://github.com/marksteele/passwderl.git",
                        "9ea83ba761e86a94c31a2a1c27c9d2d5755f8815"}},
-       {goldrush,".*",
-                 {git,"git://github.com/DeadZen/goldrush.git",
-                      "71e63212f12c25827e0c1b4198d37d5d018a7fec"}},
-       {lager,".*",
-              {git,"git://github.com/basho/lager.git",
-                   "b6b6cebcb27ccff8acc59ae775acebc2f52e4926"}},
        {foldrerl,".*",
                  {git,"git://github.com/marksteele/foldrerl.git",
                       "6a4f90796f968caa6f25dae01f1f28dd7b00ed6c"}},
@@ -96,9 +93,13 @@
                    "adf1822defc2b7cfdc7aca112adabfa1d614043c"}},
        {cowboy,".*",
                {git,"https://github.com/ninenines/cowboy",
-                    "d08c2ab39d38c181abda279d5c2cadfac33a50c1"}}]}.
+                    "d08c2ab39d38c181abda279d5c2cadfac33a50c1"}},
+       {rebar_lock_deps_plugin,".*",
+                               {git,"git://github.com/seth/rebar_lock_deps_plugin.git",
+                                    "7a5835029c42b8138325405237ea7e8516a84800"}}]}.
 {erl_opts,[warnings_as_errors,fail_on_warning,
            [native,{hipe,[o3]}],
-           debug_info]}.
+           debug_info,
+           {parse_transform,lager_transform}]}.
 {plugins,[rebar_lock_deps_plugin]}.
 
